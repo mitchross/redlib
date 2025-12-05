@@ -49,7 +49,6 @@ pub static HTTPS_CONNECTOR: LazyLock<HttpsConnector<HttpConnector>> = LazyLock::
 					rustls::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 					rustls::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 				])
-				// .with_safe_default_cipher_suites()
 				.with_safe_default_kx_groups()
 				.with_safe_default_protocol_versions()
 				.unwrap()
