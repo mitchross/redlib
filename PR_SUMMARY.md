@@ -74,6 +74,7 @@ As documented in [redlib-org/redlib#446](https://github.com/redlib-org/redlib/is
 - No unnecessary packages in final image
 - Healthcheck configured for container orchestration
 - HTTPS enforced with modern cipher suites
+- All GitHub Actions pinned to secure versions (actions/download-artifact@v4.1.8+ to avoid CVE)
 
 ## How to Use
 
