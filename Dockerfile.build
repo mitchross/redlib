@@ -1,0 +1,49 @@
+# Build stage
+FROM rust:1.81-alpine AS builder
+
+ARG TARGET
+
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig \
+    git
+
+# Set working directory
+WORKDIR /app
+
+# Copy the entire source code
+COPY . .
+
+# Install the target
+RUN rustup target add ${TARGET}
+
+# Build the application
+RUN cargo build --release --target ${TARGET}
+
+# Copy the binary to a known location
+RUN cp target/${TARGET}/release/redlib /usr/local/bin/redlib
+
+# Runtime stage
+FROM alpine:3.19
+
+# Install runtime dependencies
+RUN apk add --no-cache curl ca-certificates
+
+# Copy the binary from builder
+COPY --from=builder /usr/local/bin/redlib /usr/local/bin/redlib
+
+# Create non-root user
+RUN adduser --home /nonexistent --no-create-home --disabled-password redlib
+
+USER redlib
+
+# Expose port
+EXPOSE 8080
+
+# Healthcheck
+HEALTHCHECK --interval=1m --timeout=3s CMD wget --spider -q http://localhost:8080/settings || exit 1
+
+CMD ["redlib"]
