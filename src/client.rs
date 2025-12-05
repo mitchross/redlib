@@ -34,7 +34,7 @@ pub static HTTPS_CONNECTOR: LazyLock<HttpsConnector<HttpConnector>> = LazyLock::
 	hyper_rustls::HttpsConnectorBuilder::new()
 		.with_tls_config(
 			rustls::ClientConfig::builder()
-				// These are the Firefox 145.0 cipher suite,
+				// These are the Firefox 145.0 cipher suites,
 				// minus the suites missing forward-secrecy support,
 				// in the same order.
 				// https://github.com/redlib-org/redlib/issues/446#issuecomment-3609306592
