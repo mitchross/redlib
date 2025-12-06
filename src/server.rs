@@ -27,7 +27,7 @@ use std::{
 };
 use time::OffsetDateTime;
 
-use crate::{config, dbg_msg};
+use crate::{config, dbg_msg, utils::register_active_user};
 
 const BANNED_USER_AGENTS: &[&str] = &[
 	"AI2Bot",
@@ -335,6 +335,15 @@ impl Server {
 							}
 						}
 					}
+
+					// Track active users by IP
+					let ip = req_headers
+						.get("x-forwarded-for")
+						.and_then(|v| v.to_str().ok())
+						.map(|s| s.split(',').next().unwrap_or("").trim())
+						.or_else(|| req_headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
+						.unwrap_or("unknown");
+					register_active_user(ip);
 
 					// Remove double slashes and decode encoded slashes
 					let mut path = req.uri().path().replace("//", "/").replace("%2F", "/");

@@ -1686,3 +1686,47 @@ fn test_round_trip(input: &Preferences, compression: bool) {
 	let deserialized: Preferences = bincode::deserialize(&decompressed).unwrap();
 	assert_eq!(*input, deserialized);
 }
+
+// =====================================
+// ACTIVE USERS TRACKING
+// =====================================
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::RwLock;
+use std::time::Instant;
+
+/// TTL for considering a user "active" (5 minutes)
+const ACTIVE_USER_TTL_SECS: u64 = 300;
+
+/// Storage for active users: maps hashed IP to last seen time
+static ACTIVE_USERS: LazyLock<RwLock<HashMap<u64, Instant>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Hash an IP address string to a u64 for privacy
+fn hash_ip(ip: &str) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	ip.hash(&mut hasher);
+	hasher.finish()
+}
+
+/// Register a visitor by their IP address (hashed for privacy)
+pub fn register_active_user(ip: &str) {
+	let hashed = hash_ip(ip);
+	if let Ok(mut users) = ACTIVE_USERS.write() {
+		users.insert(hashed, Instant::now());
+	}
+}
+
+/// Get the count of active users (seen within TTL)
+pub fn get_active_users_count() -> usize {
+	let now = Instant::now();
+	let ttl = std::time::Duration::from_secs(ACTIVE_USER_TTL_SECS);
+
+	if let Ok(mut users) = ACTIVE_USERS.write() {
+		// Clean up expired entries and count active ones
+		users.retain(|_, last_seen| now.duration_since(*last_seen) < ttl);
+		users.len()
+	} else {
+		0
+	}
+}
