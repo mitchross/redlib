@@ -9,7 +9,9 @@ RUN apk add --no-cache \
     openssl-dev \
     openssl-libs-static \
     pkgconfig \
-    git
+    git \
+    perl \
+    make
 
 # Set working directory
 WORKDIR /app
