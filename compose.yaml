@@ -13,6 +13,8 @@ services:
     cap_drop:
       - ALL
     env_file: .env
+    environment:
+      - REDLIB_OAUTH_BACKEND=generic
     networks:
       - redlib
     healthcheck:

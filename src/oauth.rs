@@ -73,9 +73,23 @@ pub struct Oauth {
 impl Oauth {
 	/// Create a new OAuth client
 	pub(crate) async fn new() -> Self {
-		// Try MobileSpoofAuth first, then fall back to GenericWebAuth
+		// Allow forcing a specific backend via env: REDLIB_OAUTH_BACKEND=generic|mobile
+		let forced_backend = std::env::var("REDLIB_OAUTH_BACKEND").ok();
 		let mut failure_count = 0;
-		let mut backend = OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new());
+		let mut backend = match forced_backend.as_deref() {
+			Some("generic") => {
+				warn!("[🔧] Forcing OAuth backend: GenericWebAuth via REDLIB_OAUTH_BACKEND");
+				OauthBackendImpl::GenericWeb(GenericWebAuth::new())
+			}
+			Some("mobile") => {
+				warn!("[🔧] Forcing OAuth backend: MobileSpoofAuth via REDLIB_OAUTH_BACKEND");
+				OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new())
+			}
+			_ => {
+				// Default: try MobileSpoofAuth first, then fall back to GenericWebAuth
+				OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new())
+			}
+		};
 
 		loop {
 			let attempt = Self::new_with_timeout_with_backend(backend.clone()).await;
@@ -101,8 +115,11 @@ impl Oauth {
 
 			failure_count += 1;
 
-			// Switch to GenericWeb after 5 failures with MobileSpoof
-			if matches!(backend, OauthBackendImpl::MobileSpoof(_)) && failure_count >= 5 {
+			// If not forced, switch to GenericWeb after 5 failures with MobileSpoof
+			if forced_backend.as_deref().is_none()
+				&& matches!(backend, OauthBackendImpl::MobileSpoof(_))
+				&& failure_count >= 5
+			{
 				warn!("[🔄] MobileSpoofAuth failed 5 times. Falling back to GenericWebAuth...");
 				backend = OauthBackendImpl::GenericWeb(GenericWebAuth::new());
 			}

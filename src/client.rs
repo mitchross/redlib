@@ -30,6 +30,15 @@ const REDDIT_SHORT_URL_BASE_HOST: &str = "redd.it";
 const ALTERNATIVE_REDDIT_URL_BASE: &str = "https://www.reddit.com";
 const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
 
+/// HTTPS connector for Reddit API requests.
+/// 
+/// Currently uses hyper-tls (native-tls/OpenSSL on Linux). For improved TLS
+/// fingerprint evasion matching the Reddit Android app, see:
+/// https://github.com/redlib-org/redlib/issues/446#issuecomment-3683913142
+/// 
+/// To use Android TLS ciphers (includes weak ciphers that OpenSSL allows),
+/// build with a custom OpenSSL configuration or use Fijxu's fork:
+/// https://git.nadeko.net/Fijxu/-/packages/container/redlib/2026-01-28
 pub static HTTPS_CONNECTOR: LazyLock<HttpsConnector<HttpConnector>> = LazyLock::new(HttpsConnector::new);
 
 pub static CLIENT: LazyLock<Client<HttpsConnector<HttpConnector>>> = LazyLock::new(|| Client::builder().build::<_, Body>(HTTPS_CONNECTOR.clone()));
