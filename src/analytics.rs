@@ -58,7 +58,7 @@ impl Analytics {
 			}
 		});
 
-		let url = format!("{}/capture/", self.host.trim_end_matches('/'));
+		let url = format!("{}/i/v0/e/", self.host.trim_end_matches('/'));
 		let _ = self
 			.client
 			.post(url)
