@@ -24,17 +24,18 @@ A unified redesign of Redlib's feed layout, comment threading, and pagination to
 
 ## 1. Feed Layout: Density-Based Design
 
-All three layouts share the same core structure: thumbnail alongside text in a flexbox row. They differ in spacing, thumbnail size, and metadata visibility.
+All three layouts use a thumbnail-alongside-text flexbox row for the post listing view. They differ in spacing, thumbnail size, and metadata visibility. Card mode in the feed shows only thumbnails (not full inline media) — full-size images/videos/galleries are rendered on the post detail page only.
 
 ### Card (Spacious)
 
 - **Thumbnail**: 120×90px, right side, border-radius 5px
 - **Title**: 14px, font-weight 500, line-height 1.4
-- **Body preview**: Shown (1-2 line truncated preview of post body)
+- **Body preview**: Shown on desktop, hidden on mobile (1-2 line truncated preview)
 - **Metadata**: Subreddit (bold, accent color), timestamp, author
 - **Footer**: Score (accent, bold), comment count, share link
 - **Container**: Background `--post`, border `--panel-border`, border-radius 5px, padding 12px, margin-bottom 8px
 - **~3 posts visible** on mobile viewport
+- **Text-only posts**: Show placeholder icon (speech bubble) in thumbnail slot, same dimensions
 
 ### Clean (Normal)
 
@@ -45,6 +46,7 @@ All three layouts share the same core structure: thumbnail alongside text in a f
 - **Footer**: Score + comment count inline, compact
 - **Container**: No background/border, separated by 1px border-bottom `#222`, padding 10px 0
 - **~5 posts visible** on mobile viewport
+- **Note**: `.clean` CSS class has no existing rules — all styles are new, not modifications
 
 ### Compact (Dense)
 
@@ -60,10 +62,13 @@ All three layouts share the same core structure: thumbnail alongside text in a f
 The `post_in_list` macro in `utils.html` needs restructuring:
 
 - Remove the CSS grid layout (grid-template-areas) in favor of flexbox
+- Remove the conditional inline media rendering for card mode in list view (`post_type == "image"` branch at line ~253) — all layouts show thumbnails only in the feed
 - Thumbnail moves from a grid column to a flex child
 - Score moves from a separate grid column into the footer row
-- Body preview becomes conditional on layout mode
+- Body preview becomes conditional on layout mode (card only, desktop only)
 - Thumbnail sizing controlled by CSS variables per layout class
+- Text-only posts (`post_type == "self"`) render a placeholder icon in the thumbnail slot instead of skipping it
+- NSFW blur: preserve `.post_blurred .post_thumbnail * { filter: blur(0.3rem) }` — update CSS selectors to match new flexbox DOM structure
 
 ### CSS Changes
 
@@ -88,20 +93,28 @@ The `post_in_list` macro in `utils.html` needs restructuring:
 
 The existing `<details>` element in `comment.html` already supports open/closed state. Changes needed:
 
-- **Template (`comment.html`)**: Pass a `depth` counter through recursive comment rendering. When `depth >= 2`, omit the `open` attribute on `<details>`.
-- **Collapse pill**: When collapsed, show a summary element styled as: background `#1a1a1a`, border-radius 4px, padding 8px 12px, with "▸ N more replies" text
-- **Count calculation**: Count all descendant comments in the collapsed chain to show accurate "N more replies"
+**Rust changes (src/utils.rs + src/post.rs):**
+
+- Add `depth: u32` field to the `Comment` struct in `src/utils.rs`
+- Add `descendant_count: u32` field to the `Comment` struct — computed recursively at parse time
+- In `src/post.rs`, modify `parse_comments()` and `build_comment()` to accept and thread a `depth` parameter. Root comments start at depth 0, each recursive call increments by 1.
+- `descendant_count` is computed in `build_comment()` by summing `1 + c.descendant_count` for each reply
+
+**Template (`comment.html`):**
+
+- When `depth >= collapse_depth` (default 2), omit the `open` attribute on `<details>`
+- **Collapse pill**: When collapsed, show a summary element styled as: background `#1a1a1a`, border-radius 4px, padding 8px 12px, with "▸ {descendant_count} more replies" text
 
 ### Collapse Bar Styling
 
-- Width: 3px (up from current 2px) for better touch targets
+- Width: 3px everywhere (mobile and desktop) for consistency and better touch targets
 - Border-radius: 2px
 - Color-coded by depth:
   - Depth 0: `var(--accent)` (red)
   - Depth 1: `#44aacc` (teal)
   - Depth 2+: `#888` (gray)
 - Cursor: pointer
-- Minimum touch target: 44px height (achieved via padding on the comment_left container)
+- Minimum touch target: 44px height on mobile (via padding on the comment_left container)
 
 ### Settings
 
@@ -119,6 +132,7 @@ The existing `<details>` element in `comment.html` already supports open/closed 
 - New preference: "Posts per page" — dropdown with options: 25, 50 (default), 100
 - Cookie: `post_count` with default `50`
 - Env var: `REDLIB_DEFAULT_POST_COUNT`
+- **Validation**: Parse cookie value as u32, clamp to range 1–100. Invalid/missing values fall back to default.
 
 ### Implementation
 
@@ -134,7 +148,7 @@ The existing `<details>` element in `comment.html` already supports open/closed 
 
 - All feed layouts: same as described above
 - Card mode: body preview shown
-- Comment collapse bars: 2px width (mouse precision)
+- Comment collapse bars: 3px width
 - Sidebar: right column as current
 
 ### Mobile (≤800px)
@@ -154,14 +168,15 @@ Keep existing breakpoints (800px, 507px, 480px). Changes are additive CSS rules 
 
 | File | Changes |
 |------|---------|
-| `templates/utils.html` | Restructure `post_in_list` macro: flexbox layout, conditional body preview, thumbnail sizing |
-| `templates/comment.html` | Add depth counter, conditional `open` attribute, collapse pill summary, depth-colored bars |
+| `templates/utils.html` | Restructure `post_in_list` macro: flexbox layout, thumbnail-only in feed (remove inline media branch), conditional body preview, placeholder for text-only posts, preserve NSFW blur selectors |
+| `templates/comment.html` | Use `depth` and `descendant_count` fields, conditional `open` attribute, collapse pill summary, depth-colored bars |
 | `templates/settings.html` | Add "Posts per page" and "Comment collapse depth" dropdowns |
-| `static/style.css` | New density CSS variables, flexbox post layout, collapse bar styles, mobile adaptations |
-| `src/subreddit.rs` | Read `post_count` cookie, pass `limit` param to API |
-| `src/post.rs` | Read `collapse_depth` cookie, pass depth to comment template |
-| `src/config.rs` | New env vars: `REDLIB_DEFAULT_POST_COUNT`, `REDLIB_DEFAULT_COLLAPSE_DEPTH` |
-| `src/server.rs` | Register new cookie preferences |
+| `static/style.css` | New density CSS variables per layout class (`.card`, `.clean`, `.compact`), flexbox post layout replacing grid, collapse bar styles (3px, color-coded), `.clean` rules (created from scratch), mobile adaptations, updated NSFW blur selectors |
+| `src/subreddit.rs` | Read `post_count` cookie, pass validated `limit` param to API URL |
+| `src/post.rs` | Modify `parse_comments()`/`build_comment()` to thread depth counter, compute `descendant_count`, read `collapse_depth` preference |
+| `src/utils.rs` | Add `depth: u32` and `descendant_count: u32` to `Comment` struct. Add `post_count` and `collapse_depth` to `Preferences` struct with `#[revision]` annotations and default values. Update `Preferences::new()`. |
+| `src/settings.rs` | Add `"post_count"` and `"collapse_depth"` to `PREFS` array (update length from 19 to 21) |
+| `src/config.rs` | Add `post_count` and `collapse_depth` fields to `Config` struct, `Config::load()`, and `get_setting_from_config()` match arms |
 
 ---
 
@@ -169,5 +184,6 @@ Keep existing breakpoints (800px, 507px, 480px). Changes are additive CSS rules 
 
 - Existing `layout` cookie values (card/clean/compact) continue to work — same names, new styling
 - New cookies (`post_count`, `collapse_depth`) default gracefully when absent
+- New `Preferences` fields use `#[revision(start = N)]` with `#[revision(default)]` fallbacks so existing encoded settings imports don't break
 - All 18 themes continue to work — changes use existing CSS variables (`--accent`, `--post`, `--foreground`, etc.)
 - No JavaScript added — all changes are server-side (Rust) and CSS
