@@ -1591,9 +1591,42 @@ body.compact .post_thumbnail {
 }
 
 .line {
-    width: 2px;
+    width: 3px;
     height: 100%;
     background: var(--foreground);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.line.depth_0 {
+    background: var(--accent);
+}
+
+.line.depth_1 {
+    background: #44aacc;
+}
+
+.line.depth_2 {
+    background: #888;
+}
+
+.collapse_pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--outside);
+    border: var(--panel-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: var(--visited);
+    font-size: 12px;
+    cursor: pointer;
+    margin-top: 4px;
+}
+
+.collapse_pill:hover {
+    background: var(--highlighted);
+    color: var(--text);
 }
 
 summary.comment_data {
