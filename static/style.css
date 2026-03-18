@@ -361,7 +361,7 @@ main {
 #column_one {
     width: 100%;
     border-radius: 5px;
-    max-width: 750px;
+    max-width: 900px;
     overflow: inherit;
 }
 @media screen and (max-width: 800px) {
@@ -968,28 +968,29 @@ a.search_subreddit:hover {
     margin: 10px 0;
 }
 
-.post {
+/* Feed listing posts only (not the detail view) */
+.post:not(.highlighted) {
     display: flex;
     gap: var(--post-gap, 12px);
-    padding: var(--post-padding, 12px);
+    padding: var(--post-padding, 10px 12px);
     align-items: flex-start;
     cursor: pointer;
     background: var(--post);
     border: var(--panel-border);
     border-radius: 5px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 
-.post:hover {
+.post:not(.highlighted):hover {
     background: var(--highlighted);
 }
 
-.post_content {
+.post:not(.highlighted) .post_content {
     flex: 1;
     min-width: 0;
 }
 
-.post_thumbnail {
+.post:not(.highlighted) .post_thumbnail {
     flex-shrink: 0;
     width: var(--thumb-width, 120px);
     height: var(--thumb-height, 90px);
@@ -997,7 +998,7 @@ a.search_subreddit:hover {
     overflow: hidden;
 }
 
-.post_thumbnail img {
+.post:not(.highlighted) .post_thumbnail img {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -1006,21 +1007,21 @@ a.search_subreddit:hover {
 
 /* Card (Spacious) - default */
 body, body.card {
-    --thumb-width: 120px;
-    --thumb-height: 90px;
+    --thumb-width: 160px;
+    --thumb-height: 110px;
     --post-padding: 12px;
-    --post-gap: 12px;
+    --post-gap: 14px;
 }
 
 /* Clean (Normal) */
 body.clean {
-    --thumb-width: 100px;
-    --thumb-height: 75px;
+    --thumb-width: 130px;
+    --thumb-height: 90px;
     --post-padding: 10px 0;
     --post-gap: 10px;
 }
 
-body.clean .post {
+body.clean .post:not(.highlighted) {
     background: none;
     border: none;
     border-radius: 0;
@@ -1036,7 +1037,7 @@ body.compact {
     --post-gap: 8px;
 }
 
-body.compact .post {
+body.compact .post:not(.highlighted) {
     background: none;
     border: none;
     border-radius: 0;
@@ -1062,6 +1063,7 @@ body.compact .post_thumbnail {
 }
 
 .post_score {
+    grid-area: post_score;
     padding-top: 19px;
     padding-left: 12px;
     font-size: 13px;
@@ -1077,8 +1079,11 @@ body.compact .post_thumbnail {
 }
 
 .post_header {
-    margin: 15px 20px 5px 12px;
-    line-height: 25px;
+    grid-area: post_header;
+    margin: 0;
+    line-height: 1.4;
+    font-size: 12px;
+    color: var(--visited);
 }
 
 .post_subreddit {
@@ -1086,11 +1091,55 @@ body.compact .post_thumbnail {
 }
 
 .post_title {
-    font-size: 16px;
+    grid-area: post_title;
+    font-size: 15px;
     font-weight: 500;
-    line-height: 1.5;
+    line-height: 1.4;
     overflow-wrap: anywhere;
+    margin: 2px 0;
+}
+
+/* Post detail view — restore original grid layout exactly */
+.post.highlighted {
+    border-radius: 5px;
+    background: var(--post);
+    box-shadow: var(--shadow);
+    display: grid;
+    transition: 0.2s background;
+    grid-template:
+        "post_score post_header post_thumbnail" auto
+        "post_score post_title  post_thumbnail" 1fr
+        "post_score post_media  post_thumbnail" auto
+        "post_score post_body   post_thumbnail" auto
+        "post_score post_poll   post_thumbnail" auto
+        "post_score post_notification post_thumbnail" auto
+        "post_score post_footer post_thumbnail" auto
+        / minmax(40px, auto) minmax(0, 1fr) fit-content(min(20%, 152px));
+    cursor: default;
+    margin-bottom: 10px;
+}
+
+.post.highlighted .post_header {
+    margin: 15px 20px 5px 12px;
+    line-height: 25px;
+    font-size: inherit;
+    color: inherit;
+}
+
+.post.highlighted .post_title {
+    font-size: 16px;
     margin: 5px 15px 5px 12px;
+}
+
+.post.highlighted .post_footer {
+    margin: 5px 20px 15px 12px;
+    gap: 0;
+    justify-content: space-between;
+}
+
+.post.highlighted .post_thumbnail {
+    width: auto;
+    height: auto;
 }
 
 .post:not(.highlighted) .post_title a:visited {
@@ -1098,6 +1147,7 @@ body.compact .post_thumbnail {
 }
 
 .post_notification {
+    grid-area: post_notification;
     margin: 5px 15px;
     text-align: center;
     font-size: 12px;
@@ -1176,6 +1226,7 @@ body.compact .post_thumbnail {
 .post_media_content,
 .post .__NoScript_PlaceHolder__,
 .gallery {
+    grid-area: post_media;
     max-width: calc(100% - 40px);
     margin: 15px auto 5px auto;
     width: auto;
@@ -1257,12 +1308,14 @@ body.compact .post_thumbnail {
 }
 
 #post_url {
+    grid-area: post_media;
     color: var(--accent);
     margin: 5px 12px;
     overflow-wrap: anywhere;
 }
 
 .post_body {
+    grid-area: post_body;
     opacity: 0.9;
     font-weight: normal;
     padding: 5px 15px 5px 12px;
@@ -1285,6 +1338,7 @@ body.compact .post_thumbnail {
 }
 
 .post_poll {
+    grid-area: post_poll;
     padding: 5px 15px 5px 12px;
 }
 
@@ -1335,11 +1389,12 @@ body.compact .post_thumbnail {
 }
 
 .post_footer {
+    grid-area: post_footer;
     display: flex;
-    justify-content: space-between;
+    gap: 12px;
     opacity: 0.5;
-    font-size: 14px;
-    margin: 5px 20px 15px 12px;
+    font-size: 13px;
+    margin: 6px 0 0 0;
 }
 
 .post_comments {
@@ -1380,6 +1435,7 @@ body.compact .post_thumbnail {
 }
 
 .post_thumbnail {
+    grid-area: post_thumbnail;
     display: grid;
     background-color: var(--background);
 }
@@ -2053,13 +2109,31 @@ th {
         display: none;
     }
 
-    .post {
+    .post:not(.highlighted) {
         gap: 8px;
         padding: 8px;
     }
 
+    /* Restore mobile grid for post detail view */
+    .post.highlighted {
+        grid-template:
+            "post_header post_header post_thumbnail" auto
+            "post_title  post_title  post_thumbnail" 1fr
+            "post_media  post_media  post_thumbnail" auto
+            "post_body   post_body   post_thumbnail" auto
+            "post_poll   post_poll   post_thumbnail" auto
+            "post_notification post_notification post_thumbnail" auto
+            "post_score  post_footer post_thumbnail" auto
+            / auto 1fr fit-content(min(20%, 152px));
+    }
+
     .collapse_pill {
         width: 100%;
+    }
+
+    .post.highlighted .post_score {
+        margin: 5px 0px 20px 15px;
+        padding: 0;
     }
 
     .post_score::before {
