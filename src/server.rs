@@ -378,11 +378,16 @@ impl Server {
 								.and_then(|v| v.to_str().ok())
 								.unwrap_or("")
 								.to_owned();
+							let referrer = req_headers
+								.get("referer")
+								.and_then(|v| v.to_str().ok())
+								.unwrap_or("")
+								.to_owned();
 							let ip_owned = ip.to_owned();
 							let path_for_event = path.clone();
 
 							tokio::spawn(async move {
-								ANALYTICS.capture_pageview(&path_for_event, &ua, &ip_owned, &host).await;
+								ANALYTICS.capture_pageview(&path_for_event, &ua, &ip_owned, &host, &referrer).await;
 							});
 						}
 					}

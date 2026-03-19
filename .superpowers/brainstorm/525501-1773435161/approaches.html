@@ -1,0 +1,64 @@
+<h2>Implementation Approach</h2>
+<p class="subtitle">Three strategies for the layout refactor — each trades off scope vs. safety differently</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Evolutionary Refactor (Recommended)</h3>
+      <p>Keep the existing 3 layout modes but <strong>redesign all three</strong> with the new principles. Card becomes the media-optimized default with large thumbnails. Compact gets tighter large-thumb variant. Clean becomes a minimal text-focused mode.</p>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Preserves user settings — existing users keep their layout preference</li>
+          <li>Each layout gets a clear identity instead of card/clean being identical</li>
+          <li>Incremental — can ship one layout at a time</li>
+          <li>Theme system, CSS variables, templates stay compatible</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Must maintain 3 layout variants going forward</li>
+          <li>Some CSS complexity from supporting multiple modes</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Single Layout + Density Toggle</h3>
+      <p>Replace all 3 layouts with <strong>one adaptive layout</strong> that has a density slider or toggle (spacious / normal / dense). The layout is always large-thumbnail-first, density controls spacing and metadata visibility.</p>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Simpler codebase — one layout to maintain</li>
+          <li>Density is the actual user need, not "card vs compact"</li>
+          <li>Cleaner CSS, fewer conditional paths in templates</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Breaking change for existing users who chose "compact"</li>
+          <li>Bigger diff — more risk of regressions</li>
+          <li>Density toggle is a new UI concept to implement</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Two Modes: Media + Text</h3>
+      <p>Replace the 3 layouts with <strong>2 purpose-driven modes</strong>: "Media" (large thumbnails, image-forward, your primary use case) and "Text" (compact, dense, optimized for r/askreddit-style subs). Auto-detect based on subreddit or let user choose.</p>
+      <div class="pros-cons" style="margin-top: 12px;">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Layouts map to actual use cases, not abstract concepts</li>
+          <li>Could auto-switch per subreddit based on content type</li>
+          <li>Fewer modes than current 3, but each has clear purpose</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Auto-detection adds complexity (which subs are "media"?)</li>
+          <li>Still a breaking change for existing users</li>
+          <li>Two layouts is still two layouts to maintain</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>

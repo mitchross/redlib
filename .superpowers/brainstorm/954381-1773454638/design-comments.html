@@ -1,0 +1,201 @@
+<h2>Design: Comment Threading & Auto-Collapse</h2>
+<p class="subtitle">Auto-collapse at depth 2. Tap-friendly collapse targets on mobile.</p>
+
+<div class="split" style="gap: 24px; flex-wrap: wrap;">
+
+  <!-- BEFORE -->
+  <div class="mockup" style="flex: 1; min-width: 300px;">
+    <div class="mockup-header">Before (Current)</div>
+    <div class="mockup-body" style="padding: 0;">
+      <div style="background: #0f0f0f; font-family: 'Inter', -apple-system, sans-serif; color: #fff; padding: 12px; max-width: 400px; font-size: 13px;">
+
+        <!-- Comment 1 (depth 0) -->
+        <div style="margin-bottom: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <div style="width: 2px; background: #d54455; flex-shrink: 0; border-radius: 1px;"></div>
+            <div style="flex: 1;">
+              <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                <span style="font-weight: 600; color: #d54455;">u/mountainfan</span> · 2h · <span style="color: #d54455;">⬆ 342</span>
+              </div>
+              <div style="line-height: 1.5; margin-bottom: 8px;">This is absolutely stunning. The lighting on those peaks is unreal. Where exactly in the Dolomites was this taken?</div>
+
+              <!-- Reply (depth 1) -->
+              <div style="margin-left: 12px; margin-bottom: 8px;">
+                <div style="display: flex; gap: 8px;">
+                  <div style="width: 2px; background: #44aacc; flex-shrink: 0; border-radius: 1px;"></div>
+                  <div style="flex: 1;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                      <span style="font-weight: 600; color: #44aacc;">u/photographer</span> <span style="background: #d54455; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 9px;">OP</span> · 1h · <span style="color: #d54455;">⬆ 128</span>
+                    </div>
+                    <div style="line-height: 1.5; margin-bottom: 8px;">Seceda ridgeline! I started the hike at 4am to catch the sunrise.</div>
+
+                    <!-- Reply (depth 2) - shown, wastes space -->
+                    <div style="margin-left: 12px; margin-bottom: 8px;">
+                      <div style="display: flex; gap: 8px;">
+                        <div style="width: 2px; background: #888; flex-shrink: 0; border-radius: 1px;"></div>
+                        <div style="flex: 1;">
+                          <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                            <span style="font-weight: 600; color: #aaa;">u/randomuser1</span> · 45m · <span style="color: #d54455;">⬆ 12</span>
+                          </div>
+                          <div style="line-height: 1.5; margin-bottom: 8px;">Nice</div>
+
+                          <!-- Depth 3 -->
+                          <div style="margin-left: 12px; margin-bottom: 8px;">
+                            <div style="display: flex; gap: 8px;">
+                              <div style="width: 2px; background: #555; flex-shrink: 0; border-radius: 1px;"></div>
+                              <div style="flex: 1;">
+                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                                  <span style="font-weight: 600; color: #aaa;">u/randomuser2</span> · 30m · ⬆ 3
+                                </div>
+                                <div style="line-height: 1.5;">Nicer</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Depth 3 -->
+                          <div style="margin-left: 12px;">
+                            <div style="display: flex; gap: 8px;">
+                              <div style="width: 2px; background: #555; flex-shrink: 0; border-radius: 1px;"></div>
+                              <div style="flex: 1;">
+                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                                  <span style="font-weight: 600; color: #aaa;">u/randomuser3</span> · 20m · ⬆ 1
+                                </div>
+                                <div style="line-height: 1.5;">Nicest</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: #555; font-size: 11px; padding: 8px; border: 1px dashed #333; border-radius: 4px;">
+          ↕ All nesting levels shown. Joke chains eat the whole screen.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- AFTER -->
+  <div class="mockup" style="flex: 1; min-width: 300px;">
+    <div class="mockup-header">After (Depth 2 Auto-Collapse)</div>
+    <div class="mockup-body" style="padding: 0;">
+      <div style="background: #0f0f0f; font-family: 'Inter', -apple-system, sans-serif; color: #fff; padding: 12px; max-width: 400px; font-size: 13px;">
+
+        <!-- Comment 1 (depth 0) -->
+        <div style="margin-bottom: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <div style="width: 3px; background: #d54455; flex-shrink: 0; border-radius: 2px; cursor: pointer;" title="Tap to collapse"></div>
+            <div style="flex: 1;">
+              <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                <span style="font-weight: 600; color: #d54455;">u/mountainfan</span> · 2h · <span style="color: #d54455;">⬆ 342</span>
+              </div>
+              <div style="line-height: 1.5; margin-bottom: 8px;">This is absolutely stunning. The lighting on those peaks is unreal. Where exactly in the Dolomites was this taken?</div>
+
+              <!-- Reply (depth 1) -->
+              <div style="margin-left: 12px; margin-bottom: 8px;">
+                <div style="display: flex; gap: 8px;">
+                  <div style="width: 3px; background: #44aacc; flex-shrink: 0; border-radius: 2px; cursor: pointer;"></div>
+                  <div style="flex: 1;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                      <span style="font-weight: 600; color: #44aacc;">u/photographer</span> <span style="background: #d54455; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 9px;">OP</span> · 1h · <span style="color: #d54455;">⬆ 128</span>
+                    </div>
+                    <div style="line-height: 1.5; margin-bottom: 8px;">Seceda ridgeline! I started the hike at 4am to catch the sunrise.</div>
+
+                    <!-- COLLAPSED depth 2+ -->
+                    <div style="background: #1a1a1a; border-radius: 4px; padding: 8px 12px; cursor: pointer; border: 1px solid #282828; display: flex; align-items: center; gap: 8px;">
+                      <span style="color: #d54455; font-size: 14px;">▸</span>
+                      <span style="color: #888; font-size: 12px;">3 more replies</span>
+                      <span style="color: #555; font-size: 11px; margin-left: auto;">tap to expand</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comment 2 (depth 0) - NOW VISIBLE -->
+        <div style="margin-bottom: 8px; border-top: 1px solid #1a1a1a; padding-top: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <div style="width: 3px; background: #5cff85; flex-shrink: 0; border-radius: 2px; cursor: pointer;"></div>
+            <div style="flex: 1;">
+              <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                <span style="font-weight: 600; color: #5cff85;">u/geoguesser</span> · 1h · <span style="color: #d54455;">⬆ 89</span>
+              </div>
+              <div style="line-height: 1.5; margin-bottom: 8px;">Fun fact: the Dolomites were once a tropical reef. Those peaks are ancient coral formations pushed up by tectonic forces.</div>
+
+              <!-- Reply (depth 1) -->
+              <div style="margin-left: 12px;">
+                <div style="display: flex; gap: 8px;">
+                  <div style="width: 3px; background: #888; flex-shrink: 0; border-radius: 2px; cursor: pointer;"></div>
+                  <div style="flex: 1;">
+                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                      <span style="font-weight: 600; color: #aaa;">u/sciencenerd</span> · 45m · <span style="color: #d54455;">⬆ 45</span>
+                    </div>
+                    <div style="line-height: 1.5;">That's wild. You can actually find fossilized shells up there at 3000m elevation.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comment 3 (depth 0) -->
+        <div style="border-top: 1px solid #1a1a1a; padding-top: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <div style="width: 3px; background: #bd93f9; flex-shrink: 0; border-radius: 2px; cursor: pointer;"></div>
+            <div style="flex: 1;">
+              <div style="font-size: 11px; color: #888; margin-bottom: 4px;">
+                <span style="font-weight: 600; color: #bd93f9;">u/hikingaddict</span> · 30m · <span style="color: #d54455;">⬆ 67</span>
+              </div>
+              <div style="line-height: 1.5;">Adding this to my list. What time of year is best for this hike?</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: #5cff85; font-size: 11px; padding: 8px; border: 1px solid #1a3a1a; border-radius: 4px; margin-top: 12px; background: rgba(92, 255, 133, 0.05);">
+          ✓ More top-level comments visible. Noise collapsed. Tap to expand.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+  <h3 style="margin-top: 0;">Comment Collapse Rules</h3>
+  <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+      <th style="text-align: left; padding: 6px 8px; color: #888;">Feature</th>
+      <th style="text-align: left; padding: 6px 8px;">Behavior</th>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <td style="padding: 6px 8px; color: #888;">Depth 0-1</td>
+      <td style="padding: 6px 8px;">Always shown open</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <td style="padding: 6px 8px; color: #888;">Depth 2+</td>
+      <td style="padding: 6px 8px;">Auto-collapsed → "N more replies" pill</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <td style="padding: 6px 8px; color: #888;">Tap collapse bar</td>
+      <td style="padding: 6px 8px;">Toggle any comment open/closed (3px wide bar for easy tap)</td>
+    </tr>
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <td style="padding: 6px 8px; color: #888;">Tap "N more replies"</td>
+      <td style="padding: 6px 8px;">Expands collapsed chain inline (uses existing &lt;details&gt; element)</td>
+    </tr>
+    <tr>
+      <td style="padding: 6px 8px; color: #888;">Color-coded bars</td>
+      <td style="padding: 6px 8px;">Each depth gets a distinct color: accent → teal → gray → muted</td>
+    </tr>
+  </table>
+</div>

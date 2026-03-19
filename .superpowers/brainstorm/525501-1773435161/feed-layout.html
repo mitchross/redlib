@@ -1,0 +1,146 @@
+<h2>How should images appear in the feed on mobile?</h2>
+<p class="subtitle">Currently thumbnails are 152px (card) or 75px (compact). Which direction feels right?</p>
+
+<div class="cards">
+  <div class="card" data-choice="gallery" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px;">
+      <div style="background: #1a1a1a; border-radius: 8px; overflow: hidden; max-width: 360px; margin: 0 auto; font-family: -apple-system, sans-serif; color: #fff;">
+        <!-- Post 1 -->
+        <div style="padding: 10px 12px 6px;">
+          <div style="font-size: 11px; color: #888;">r/earthporn • 3h • u/photographer</div>
+          <div style="font-size: 14px; font-weight: 500; margin: 4px 0;">Sunset over the Dolomites [OC] [4032x3024]</div>
+        </div>
+        <div style="width: 100%; height: 220px; background: linear-gradient(135deg, #d54455 0%, #ff8866 50%, #ffcc44 100%); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 48px; opacity: 0.5;">🏔️</span>
+        </div>
+        <div style="padding: 6px 12px 10px; display: flex; justify-content: space-between; font-size: 12px; color: #888;">
+          <span>⬆ 12.4k</span>
+          <span>💬 234 comments</span>
+          <span>↗ share</span>
+        </div>
+
+        <div style="border-top: 1px solid #333;"></div>
+
+        <!-- Post 2 -->
+        <div style="padding: 10px 12px 6px;">
+          <div style="font-size: 11px; color: #888;">r/pics • 5h • u/traveler</div>
+          <div style="font-size: 14px; font-weight: 500; margin: 4px 0;">Found this hidden waterfall in Iceland</div>
+        </div>
+        <div style="width: 100%; height: 220px; background: linear-gradient(180deg, #2244aa 0%, #44aacc 60%, #88ddff 100%); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 48px; opacity: 0.5;">💧</span>
+        </div>
+        <div style="padding: 6px 12px 10px; display: flex; justify-content: space-between; font-size: 12px; color: #888;">
+          <span>⬆ 8.1k</span>
+          <span>💬 156 comments</span>
+          <span>↗ share</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: Gallery Mode</h3>
+      <p>Full-width images in feed. Title and metadata compact above/below. Optimized for scrolling through visual content. Like Instagram/mobile Reddit.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="large-thumb" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px;">
+      <div style="background: #1a1a1a; border-radius: 8px; overflow: hidden; max-width: 360px; margin: 0 auto; font-family: -apple-system, sans-serif; color: #fff;">
+        <!-- Post 1 -->
+        <div style="padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="flex: 1;">
+            <div style="font-size: 11px; color: #888;">r/earthporn • 3h</div>
+            <div style="font-size: 14px; font-weight: 500; margin: 4px 0; line-height: 1.3;">Sunset over the Dolomites [OC] [4032x3024]</div>
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">⬆ 12.4k • 💬 234</div>
+          </div>
+          <div style="width: 120px; height: 90px; border-radius: 6px; background: linear-gradient(135deg, #d54455 0%, #ff8866 50%, #ffcc44 100%); flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 28px; opacity: 0.5;">🏔️</span>
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid #333;"></div>
+
+        <!-- Post 2 -->
+        <div style="padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="flex: 1;">
+            <div style="font-size: 11px; color: #888;">r/pics • 5h</div>
+            <div style="font-size: 14px; font-weight: 500; margin: 4px 0; line-height: 1.3;">Found this hidden waterfall in Iceland</div>
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">⬆ 8.1k • 💬 156</div>
+          </div>
+          <div style="width: 120px; height: 90px; border-radius: 6px; background: linear-gradient(180deg, #2244aa 0%, #44aacc 60%, #88ddff 100%); flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 28px; opacity: 0.5;">💧</span>
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid #333;"></div>
+
+        <!-- Post 3 -->
+        <div style="padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="flex: 1;">
+            <div style="font-size: 11px; color: #888;">r/aww • 1h</div>
+            <div style="font-size: 14px; font-weight: 500; margin: 4px 0; line-height: 1.3;">My cat discovered the snow for the first time</div>
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">⬆ 24.7k • 💬 412</div>
+          </div>
+          <div style="width: 120px; height: 90px; border-radius: 6px; background: linear-gradient(180deg, #556677 0%, #eef2f5 100%); flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 28px; opacity: 0.5;">🐱</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: Large Thumbnails</h3>
+      <p>Bigger thumbnails (120x90) alongside text. More posts visible at once. Good balance of density and preview. Like Hacker News + images.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px;">
+      <div style="background: #1a1a1a; border-radius: 8px; overflow: hidden; max-width: 360px; margin: 0 auto; font-family: -apple-system, sans-serif; color: #fff;">
+        <!-- Post 1 - image post gets full width -->
+        <div style="padding: 10px 12px 6px;">
+          <div style="font-size: 11px; color: #888;">r/earthporn • 3h • u/photographer</div>
+          <div style="font-size: 14px; font-weight: 500; margin: 4px 0;">Sunset over the Dolomites [OC]</div>
+        </div>
+        <div style="width: 100%; height: 180px; background: linear-gradient(135deg, #d54455 0%, #ff8866 50%, #ffcc44 100%); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 40px; opacity: 0.5;">🏔️</span>
+        </div>
+        <div style="padding: 6px 12px 10px; display: flex; justify-content: space-between; font-size: 12px; color: #888;">
+          <span>⬆ 12.4k</span>
+          <span>💬 234</span>
+        </div>
+
+        <div style="border-top: 1px solid #333;"></div>
+
+        <!-- Post 2 - text post gets compact treatment -->
+        <div style="padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="flex: 1;">
+            <div style="font-size: 11px; color: #888;">r/askreddit • 2h</div>
+            <div style="font-size: 14px; font-weight: 500; margin: 4px 0; line-height: 1.3;">What's the most underrated travel destination?</div>
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">⬆ 5.2k • 💬 1.8k</div>
+          </div>
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #333; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 16px; opacity: 0.5;">💬</span>
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid #333;"></div>
+
+        <!-- Post 3 - image post gets full width -->
+        <div style="padding: 10px 12px 6px;">
+          <div style="font-size: 11px; color: #888;">r/aww • 1h • u/catperson</div>
+          <div style="font-size: 14px; font-weight: 500; margin: 4px 0;">My cat discovered the snow</div>
+        </div>
+        <div style="width: 100%; height: 180px; background: linear-gradient(180deg, #556677 0%, #eef2f5 100%); display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 40px; opacity: 0.5;">🐱</span>
+        </div>
+        <div style="padding: 6px 12px 10px; display: flex; justify-content: space-between; font-size: 12px; color: #888;">
+          <span>⬆ 24.7k</span>
+          <span>💬 412</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C: Hybrid (Smart)</h3>
+      <p>Image/video posts get full-width previews. Text/link posts stay compact. Best of both worlds — images are heroes, text stays dense.</p>
+    </div>
+  </div>
+</div>
