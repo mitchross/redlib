@@ -38,9 +38,7 @@
 			person_profiles: 'always',
 			autocapture: false,
 			disable_session_recording: false,
-			loaded: function(ph) {
-				setTimeout(function() { ph.startSessionRecording(); }, 3000);
-			}
+			loaded: function(ph) { ph.startSessionRecording(); }
 		});
 		</script>
 		{% endif %}
