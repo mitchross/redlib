@@ -31,8 +31,8 @@
 		<div id="video_quality" data-value="{{ prefs.video_quality }}"></div>
 		{% endblock %}
 		{% if crate::analytics::ANALYTICS.enabled && !crate::analytics::ANALYTICS.client_host.is_empty() %}
-		<script src="{{ crate::analytics::ANALYTICS.client_host }}/static/array.full.js" crossorigin="anonymous"></script>
-		<script>
+		<script data-cfasync="false" src="{{ crate::analytics::ANALYTICS.client_host }}/static/array.full.js" crossorigin="anonymous"></script>
+		<script data-cfasync="false">
 		posthog.init('{{ crate::analytics::ANALYTICS.api_key }}', {
 			api_host: '{{ crate::analytics::ANALYTICS.client_host }}',
 			person_profiles: 'always',

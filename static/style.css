@@ -996,6 +996,28 @@ a.search_subreddit:hover {
     height: var(--thumb-height, 90px);
     border-radius: 5px;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--foreground);
+}
+
+.post:not(.highlighted) .post_thumbnail a {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+}
+
+.post:not(.highlighted) .post_thumbnail svg {
+    width: 100%;
+    height: 100%;
+}
+
+.post:not(.highlighted) .post_thumbnail div {
+    width: 100%;
+    height: 100%;
 }
 
 .post:not(.highlighted) .post_thumbnail img {
@@ -1063,15 +1085,9 @@ body.compact .post_thumbnail {
 }
 
 .post_score {
-    grid-area: post_score;
-    padding-top: 19px;
-    padding-left: 12px;
     font-size: 13px;
     font-weight: bold;
     color: var(--accent);
-    text-align: center;
-    border-radius: 5px 0 0 5px;
-    transition: 0.2s background;
 }
 
 .post_score .label {
@@ -1117,6 +1133,15 @@ body.compact .post_thumbnail {
         / minmax(40px, auto) minmax(0, 1fr) fit-content(min(20%, 152px));
     cursor: default;
     margin-bottom: 10px;
+}
+
+.post.highlighted .post_score {
+    grid-area: post_score;
+    padding-top: 19px;
+    padding-left: 12px;
+    text-align: center;
+    border-radius: 5px 0 0 5px;
+    transition: 0.2s background;
 }
 
 .post.highlighted .post_header {
@@ -1315,12 +1340,19 @@ body.compact .post_thumbnail {
 }
 
 .post_body {
-    grid-area: post_body;
     opacity: 0.9;
     font-weight: normal;
+    overflow-wrap: anywhere;
+}
+
+.post.highlighted .post_body {
+    grid-area: post_body;
     padding: 5px 15px 5px 12px;
     width: calc(100% - 30px);
-    overflow-wrap: anywhere;
+}
+
+.post:not(.highlighted) .post_body {
+    margin: 4px 0 2px;
 }
 
 .post_body pre {
@@ -2066,13 +2098,13 @@ th {
     body.fixed_navbar {
         min-height: calc(100vh - 75px);
         padding-top: 45px;
-        #subreddit { margin: 49px 0 0; }
-        #user { margin: 49px 0 20px 0; }
-        #settings { margin-top: 48px; }
-        div.post.highlighted { margin-top: 49px; }
-        main:not(:has(div + aside)) { #sort { margin-top: 49px; } }
-        #column_one:has(div.post.highlighted + #commentQueryForms) { #sort { margin-top: 0 } }
     }
+    body.fixed_navbar #subreddit { margin: 49px 0 0; }
+    body.fixed_navbar #user { margin: 49px 0 20px 0; }
+    body.fixed_navbar #settings { margin-top: 48px; }
+    body.fixed_navbar div.post.highlighted { margin-top: 49px; }
+    body.fixed_navbar main:not(:has(div + aside)) #sort { margin-top: 49px; }
+    body.fixed_navbar #column_one:has(div.post.highlighted + #commentQueryForms) #sort { margin-top: 0; }
 
     #sidebar {
         margin: 20px 0;
