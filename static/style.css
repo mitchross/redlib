@@ -28,6 +28,10 @@
     --popup-border: 1px solid var(--popup-red);
 
     --footer-height: 30px;
+
+    /* Animation easing curves */
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @font-face {
@@ -106,6 +110,8 @@
 
 :focus-visible {
     outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    transition: outline-offset 150ms var(--ease-out-quart);
 }
 
 html,
@@ -174,6 +180,7 @@ nav {
     color: var(--accent);
     background: var(--outside);
     box-shadow: var(--shadow);
+    border-bottom: 2px solid var(--accent);
 
     font-size: 20px;
 
@@ -221,6 +228,14 @@ nav #links svg {
 
 nav #redlib {
     vertical-align: -2px;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+}
+
+nav #lib {
+    font-weight: 400;
+    opacity: 0.7;
 }
 
 figcaption {
@@ -229,8 +244,15 @@ figcaption {
 }
 
 #settings_link {
-    opacity: 0.8;
+    opacity: 0.7;
     margin-left: 10px;
+}
+
+nav #links a {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
 }
 
 .popup {
@@ -245,7 +267,8 @@ figcaption {
     bottom: 0;
     right: 0;
     visibility: hidden;
-    transition: all 0.1s ease-in-out;
+    transition: opacity 250ms var(--ease-out-expo),
+                visibility 250ms;
     z-index: 2;
 }
 
@@ -275,7 +298,6 @@ figcaption {
     background: var(--popup-background);
     border: var(--popup-border);
     border-radius: 5px;
-    transition: all 0.1s ease-in-out;
 }
 
 .popup-inner svg {
@@ -300,7 +322,13 @@ figcaption {
     width: 80%;
     margin: 0.5rem;
     cursor: pointer;
-    transition: all 0.1s ease-in-out;
+    transition: background 150ms var(--ease-out-quart),
+                color 150ms var(--ease-out-quart),
+                transform 100ms var(--ease-out-quart);
+}
+
+.popup-inner a:active {
+    transform: scale(0.97);
 }
 
 #goback {
@@ -499,8 +527,9 @@ aside {
 
 #user_title,
 #sub_title {
-    font-size: 20px;
-    font-weight: bold;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
 }
 
 #user_description,
@@ -559,6 +588,17 @@ aside {
     padding: 10px 20px;
     border-radius: 5px;
     cursor: pointer;
+    transition: transform 100ms var(--ease-out-quart),
+                background-color 150ms var(--ease-out-quart);
+}
+
+.subscribe:active,
+.unsubscribe:active,
+.filter:active,
+.unfilter:active,
+.copy:active,
+.import:active {
+    transform: scale(0.97);
 }
 
 .copy,
@@ -607,6 +647,19 @@ aside {
     flex-direction: column;
     overflow: auto;
     z-index: 1;
+    animation: dropdownIn 200ms var(--ease-out-expo);
+    transform-origin: top center;
+}
+
+@keyframes dropdownIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scaleY(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
 }
 
 #feed_list > p {
@@ -618,7 +671,7 @@ aside {
 
 #feed_list > a {
     padding: 10px 20px;
-    transition: 0.2s background;
+    transition: background 150ms var(--ease-out-quart);
 }
 
 #feed_list > .selected {
@@ -677,7 +730,7 @@ select,
 
 select {
     background: var(--outside);
-    transition: 0.2s background;
+    transition: background 150ms var(--ease-out-quart);
     cursor: pointer;
 }
 
@@ -871,15 +924,20 @@ main > * > footer > a {
     padding: 10px 20px;
     text-align: center;
     cursor: pointer;
-    transition: 0.2s background;
+    transition: background 150ms var(--ease-out-quart),
+                color 150ms var(--ease-out-quart);
     word-wrap: normal;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 #sort_options > a.selected,
 #listing_options > a.selected {
     background: var(--accent);
     color: var(--foreground);
-    font-weight: 500;
+    font-weight: 700;
 }
 
 #sort_options > a:not(.selected):hover,
@@ -891,7 +949,7 @@ main > * > footer > a {
     border-radius: 5px;
     background: var(--post);
     box-shadow: var(--shadow);
-    transition: 0.2s background;
+    transition: background 150ms var(--ease-out-quart);
     border: var(--panel-border);
     margin-bottom: 20px;
 }
@@ -899,6 +957,7 @@ main > * > footer > a {
 .search_subreddit {
     padding: 16px 20px;
     display: flex;
+    transition: background 150ms var(--ease-out-quart);
 }
 
 .search_subreddit_left {
@@ -979,10 +1038,21 @@ a.search_subreddit:hover {
     border: var(--panel-border);
     border-radius: 5px;
     margin-bottom: 6px;
+    transition: transform 200ms var(--ease-out-quart),
+                box-shadow 200ms var(--ease-out-quart),
+                background 150ms var(--ease-out-quart);
 }
 
 .post:not(.highlighted):hover {
     background: var(--highlighted);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.post:not(.highlighted):active {
+    transform: translateY(0);
+    box-shadow: var(--shadow);
+    transition-duration: 80ms;
 }
 
 .post:not(.highlighted) .post_content {
@@ -1085,9 +1155,10 @@ body.compact .post_thumbnail {
 }
 
 .post_score {
-    font-size: 13px;
-    font-weight: bold;
+    font-size: 14px;
+    font-weight: 800;
     color: var(--accent);
+    letter-spacing: -0.02em;
 }
 
 .post_score .label {
@@ -1098,19 +1169,22 @@ body.compact .post_thumbnail {
     grid-area: post_header;
     margin: 0;
     line-height: 1.4;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--visited);
+    letter-spacing: 0.02em;
 }
 
 .post_subreddit {
-    font-weight: bold;
+    font-weight: 700;
+    color: var(--accent);
 }
 
 .post_title {
     grid-area: post_title;
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 1.4;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.02em;
     overflow-wrap: anywhere;
     margin: 2px 0;
 }
@@ -1121,7 +1195,7 @@ body.compact .post_thumbnail {
     background: var(--post);
     box-shadow: var(--shadow);
     display: grid;
-    transition: 0.2s background;
+    transition: background 200ms var(--ease-out-quart);
     grid-template:
         "post_score post_header post_thumbnail" auto
         "post_score post_title  post_thumbnail" 1fr
@@ -1141,7 +1215,10 @@ body.compact .post_thumbnail {
     padding-left: 12px;
     text-align: center;
     border-radius: 5px 0 0 5px;
-    transition: 0.2s background;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    font-size: 16px;
+    font-weight: 800;
+    transition: background 200ms var(--ease-out-quart);
 }
 
 .post.highlighted .post_header {
@@ -1152,7 +1229,9 @@ body.compact .post_thumbnail {
 }
 
 .post.highlighted .post_title {
-    font-size: 16px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
     margin: 5px 15px 5px 12px;
 }
 
@@ -1425,12 +1504,14 @@ body.compact .post_thumbnail {
     display: flex;
     gap: 12px;
     opacity: 0.5;
-    font-size: 13px;
+    font-size: 12px;
     margin: 6px 0 0 0;
 }
 
 .post_comments {
-    font-weight: bold;
+    font-weight: 700;
+    color: var(--accent);
+    opacity: 1;
 }
 
 #comment_count {
@@ -1710,11 +1791,17 @@ body.compact .post_thumbnail {
     font-size: 12px;
     cursor: pointer;
     margin-top: 4px;
+    transition: background 150ms var(--ease-out-quart),
+                color 150ms var(--ease-out-quart);
 }
 
 .collapse_pill:hover {
     background: var(--highlighted);
     color: var(--text);
+}
+
+details[open] > summary .collapse_pill {
+    display: none;
 }
 
 summary.comment_data {
@@ -2045,6 +2132,33 @@ th {
     color: var(--accent);
 }
 
+/* Tablet */
+
+@media screen and (min-width: 801px) and (max-width: 1024px) {
+    aside {
+        max-width: 240px;
+        margin: 20px 10px 0 10px;
+    }
+
+    main {
+        padding: 10px 15px;
+    }
+
+    #subreddit, #sidebar {
+        min-width: 240px;
+    }
+
+    /* Slightly smaller thumbnails on tablet */
+    body, body.card {
+        --thumb-width: 140px;
+        --thumb-height: 95px;
+    }
+    body.clean {
+        --thumb-width: 115px;
+        --thumb-height: 80px;
+    }
+}
+
 /* Mobile */
 
 @media screen and (max-width: 800px) {
@@ -2123,9 +2237,63 @@ th {
         display: none;
     }
 
+    /* Disable hover lift on touch devices (sticky :hover) */
+    .post:not(.highlighted):hover {
+        transform: none;
+        box-shadow: var(--shadow);
+    }
+
     /* Ensure touch-friendly collapse bars */
     .comment_left {
+        min-width: 44px;
         min-height: 44px;
+    }
+
+    /* Touch-friendly sort/listing options */
+    #sort_options > a,
+    #listing_options > a {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Touch-friendly nav links */
+    nav #links a {
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Wider tap area for comment thread lines.
+       Vertical padding must remain 0 for background-clip to work correctly. */
+    .line {
+        padding: 0 8px;
+        background-clip: content-box;
+    }
+
+    /* Prevent deep comment nesting overflow */
+    .thread {
+        overflow-x: hidden;
+    }
+
+    /* Touch-friendly pagination */
+    main > * > footer {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    main > * > footer > a {
+        width: 100%;
+        min-height: 44px;
+        padding: 12px 20px;
+        text-align: center;
+        font-weight: 600;
+        font-size: 15px;
+        justify-content: center;
+        box-sizing: border-box;
+        margin: 0;
     }
 }
 
@@ -2184,8 +2352,9 @@ th {
         padding: 5px 0;
     }
 
+    /* Reduced from 44px touch target — space constraint on narrow screens */
     .comment_left {
-        min-width: auto;
+        min-width: 36px;
         padding: 5px 0px;
         align-items: initial;
         margin-top: -5px;
@@ -2261,6 +2430,43 @@ th {
     .popup-inner {
         max-width: 80%;
     }
+
+    /* Flatten deeply nested comments to prevent overflow.
+       16px is below touch-target minimum — intentional tradeoff to prevent
+       horizontal scrolling at deep nesting depths on narrow screens. */
+    .replies .replies .replies .replies > .comment {
+        margin-left: 0;
+    }
+    .replies .replies .replies .replies .comment_left {
+        min-width: 16px;
+    }
+    .replies .replies .replies .replies .comment_score {
+        display: none;
+    }
+}
+
+/* Thumbnail scaling for smaller phones */
+
+@media screen and (max-width: 480px) {
+    body, body.card {
+        --thumb-width: 110px;
+        --thumb-height: 80px;
+    }
+    body.clean {
+        --thumb-width: 100px;
+        --thumb-height: 70px;
+    }
+}
+
+@media screen and (max-width: 375px) {
+    body, body.card {
+        --thumb-width: 80px;
+        --thumb-height: 60px;
+    }
+    body.clean {
+        --thumb-width: 70px;
+        --thumb-height: 55px;
+    }
 }
 
 .quality-selector {
@@ -2277,4 +2483,16 @@ th {
 .quality-selector option:hover {
     background-color: var(--accent);
     color: var(--text);
+}
+
+/* Reduced motion: disable animations for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }

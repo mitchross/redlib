@@ -12,6 +12,9 @@ A diverse audience spanning privacy-conscious readers who want Reddit content wi
 - **Anti-references**: Avoid new Reddit's bloat, generic Bootstrap/Material sameness, and lifeless ultra-minimalism. Also avoid over-designed flashiness — the personality should come from smart UX choices, not visual noise
 - **Theme**: Dark mode default with red accent (#d54455). 18 theme options already available.
 
+### Accessibility
+Best-effort approach — no formal WCAG compliance target, but follow good practices: visible focus indicators, sufficient contrast for readability, semantic HTML, and alt text for meaningful images. All animations respect `prefers-reduced-motion: reduce`.
+
 ### Design Principles
 
 1. **Images and video first**: Optimize for media-heavy subreddits. Large previews, not tiny thumbnails. Make visual content the hero of the layout, especially on mobile.
