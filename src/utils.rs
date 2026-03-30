@@ -335,6 +335,7 @@ pub struct Post {
 	pub link_title: String,
 	pub poll: Option<Poll>,
 	pub score: (String, String),
+	pub score_tier: &'static str,
 	pub upvote_ratio: i64,
 	pub post_type: String,
 	pub flair: Flair,
@@ -415,6 +416,12 @@ impl Post {
 					("\u{2022}".to_string(), "Hidden".to_string())
 				} else {
 					format_num(score)
+				},
+				score_tier: match score {
+					s if s >= 10000 => "score_hot",
+					s if s >= 1000 => "score_warm",
+					s if s >= 100 => "score_mild",
+					_ => "score_cool",
 				},
 				upvote_ratio: ratio as i64,
 				post_type,
@@ -856,6 +863,12 @@ pub async fn parse_post(post: &Value) -> Post {
 		link_title: val(post, "link_title"),
 		poll,
 		score: format_num(score),
+		score_tier: match score {
+			s if s >= 10000 => "score_hot",
+			s if s >= 1000 => "score_warm",
+			s if s >= 100 => "score_mild",
+			_ => "score_cool",
+		},
 		upvote_ratio: ratio as i64,
 		post_type,
 		media,
@@ -1550,10 +1563,12 @@ mod tests {
 			hide_awards: "off".to_owned(),
 			hide_score: "off".to_owned(),
 			remove_default_feeds: "off".to_owned(),
+			post_count: "25".to_owned(),
+			collapse_depth: "2".to_owned(),
 		};
 		let urlencoded = serde_urlencoded::to_string(prefs).expect("Failed to serialize Prefs");
 
-		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off&remove_default_feeds=off");
+		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off&remove_default_feeds=off&post_count=25&collapse_depth=2");
 	}
 }
 
@@ -1663,9 +1678,9 @@ fn test_default_prefs_serialization_loop_bincode() {
 }
 
 static KNOWN_GOOD_CONFIGS: &[&str] = &[
-	"ఴӅβØØҞÉဏႢձĬ༧ȒʯऌԔӵ୮༏",
-	"ਧՊΥÀÃǎƱГ۸ඣമĖฤ႙ʟาúໜϾௐɥঀĜໃહཞઠѫҲɂఙ࿔ǲઉƲӟӻĻฅΜδ໖ԜǗဖငƦơ৶Ą௩ԹʛใЛʃශаΏ",
-	"ਧԩΥÀÃÎŠ౭൩ඔႠϼҭöҪƸռઇԾॐნɔາǒՍҰच௨ಖມŃЉŐདƦ๙ϩএఠȝഽйʮჯඒϰळՋ௮ສ৵ऎΦѧਹಧଟƙŃ३î༦ŌပղयƟแҜ།",
+	"ยßΏØØΑनయ࿁ΤÀ",
+	"ඤʒഖºÁǗμງɐჭఝଏඎძɍÌયফϚಛȣґഇʇƥɍऒპӳĪଇ၀ԁÀ",
+	"ਪҥΤºÁÔΠΝปţӍț௷࿇ຢĩŇଣяǛϛയਤఽЋƊєॹōජΓͿĞइසςǊȭ",
 ];
 
 #[test]

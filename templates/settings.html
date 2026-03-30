@@ -66,7 +66,7 @@
 				</div>
 				<div class="prefs-group">
 					<label for="post_sort" title="Applies only to subreddit feeds">Default subreddit post sort:</label>
-					<select name="post_sort">
+					<select name="post_sort" id="post_sort">
 						{% call utils::options(prefs.post_sort, ["hot", "new", "top", "rising", "controversial"], "hot")
 						%}
 					</select>
@@ -113,12 +113,12 @@
 				<div class="prefs-group">
 					<label for="fixed_navbar">Keep navbar fixed</label>
 					<input type="hidden" value="off" name="fixed_navbar">
-					<input type="checkbox" name="fixed_navbar" {% if prefs.fixed_navbar=="on" %}checked{% endif %}>
+					<input type="checkbox" name="fixed_navbar" id="fixed_navbar" {% if prefs.fixed_navbar=="on" %}checked{% endif %}>
 				</div>
 				<div class="prefs-group">
 					<label for="hide_sidebar_and_summary">Hide the summary and sidebar</label>
 					<input type="hidden" value="off" name="hide_sidebar_and_summary">
-					<input type="checkbox" name="hide_sidebar_and_summary" {% if prefs.hide_sidebar_and_summary=="on"
+					<input type="checkbox" name="hide_sidebar_and_summary" id="hide_sidebar_and_summary" {% if prefs.hide_sidebar_and_summary=="on"
 						%}checked{% endif %}>
 				</div>
 				<div class="prefs-group">
@@ -154,7 +154,7 @@
 					<label for="disable_visit_reddit_confirmation">Do not confirm before visiting content on
 						Reddit</label>
 					<input type="hidden" value="off" name="disable_visit_reddit_confirmation">
-					<input type="checkbox" name="disable_visit_reddit_confirmation" {% if
+					<input type="checkbox" name="disable_visit_reddit_confirmation" id="disable_visit_reddit_confirmation" {% if
 						prefs.disable_visit_reddit_confirmation=="on" %}checked{% endif %}>
 				</div>
 			</fieldset>

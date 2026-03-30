@@ -44,20 +44,26 @@
 /* Automatic theme selection */
 :root,
 .dark {
-    /* Default & fallback theme (dark) */
-    --accent: #d54455;
-    --green: #5cff85;
-    --text: white;
-    --foreground: #222;
-    --background: #0f0f0f;
-    --outside: #1f1f1f;
-    --post: #161616;
-    --panel-border: 1px solid #333;
-    --highlighted: #333;
-    --visited: #aaa;
+    /* Default & fallback theme (dark) — warm-tinted neutrals */
+    --accent: #e0434f;
+    --green: #4edd78;
+    --text: #f5f0ed;
+    --foreground: #242120;
+    --background: #110f0e;
+    --outside: #1f1c1a;
+    --post: #181514;
+    --panel-border: 1px solid #352f2c;
+    --highlighted: #352f2c;
+    --visited: #a8a099;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
     --popup: #b80a27;
-    --spoiler: #ddd;
+    --spoiler: #e0d8d2;
+
+    /* Comment depth line colors */
+    --depth-1: #4ca6c9;
+    --depth-2: #c98a4c;
+    --depth-3: #7b6dcc;
+    --depth-4: #5a7a62;
 
     /* Hint color theme to browser for scrollbar */
     color-scheme: dark;
@@ -66,18 +72,18 @@
 /* Browser-defined light theme */
 @media (prefers-color-scheme: light) {
     :root {
-        --accent: #bb2b3b;
-        --green: #00a229;
-        --text: black;
-        --foreground: #f5f5f5;
-        --background: #ddd;
-        --outside: #ececec;
-        --post: #eee;
-        --panel-border: 1px solid #ccc;
-        --highlighted: white;
-        --visited: #555;
+        --accent: #c43040;
+        --green: #2d9e4a;
+        --text: #1a1614;
+        --foreground: #f5f2ef;
+        --background: #ddd8d4;
+        --outside: #ebe8e4;
+        --post: #eeeae6;
+        --panel-border: 1px solid #ccc5be;
+        --highlighted: #faf8f6;
+        --visited: #5c564f;
         --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        --spoiler: #0f0f0f;
+        --spoiler: #1a1614;
 
         /* Hint color theme to browser for scrollbar */
         color-scheme: light;
@@ -88,7 +94,7 @@
 
 /* Tokyo Night theme setting */
 .tokyoNight {
-    --accent: #565f89;
+    --accent: #7982b4;
     --green: #73daca;
     --text: #a9b1d6;
     --foreground: #24283b;
@@ -97,7 +103,7 @@
     --post: #1a1b26;
     --panel-border: 1px solid #a9b1d6;
     --highlighted: #414868;
-    --visited: #414868;
+    --visited: #6b7394;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
@@ -555,9 +561,6 @@ aside {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
 }
-@media screen and (max-width: 279px) {
-    #sub_actions { display: unset; }
-}
 
 #user_details > label,
 #sub_details > label {
@@ -884,10 +887,6 @@ button.submit:hover > svg {
         border-bottom: 2px var(--outside) solid;
     }
 
-    #search:focus {
-        outline: 0;
-    }
-
     #search_sort > .search_widget_divider_box {
         flex-wrap: wrap;
     }
@@ -1161,6 +1160,22 @@ body.compact .post_thumbnail {
     letter-spacing: -0.02em;
 }
 
+/* Score intensity tiers — hotter scores glow brighter */
+.post_score.score_cool {
+    opacity: 0.5;
+}
+.post_score.score_mild {
+    opacity: 0.7;
+}
+.post_score.score_warm {
+    opacity: 0.9;
+}
+.post_score.score_hot {
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(224, 67, 79, 0.4);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
 .post_score .label {
     display: none;
 }
@@ -1215,6 +1230,7 @@ body.compact .post_thumbnail {
     padding-left: 12px;
     text-align: center;
     border-radius: 5px 0 0 5px;
+    background: rgba(224, 67, 79, 0.08);
     background: color-mix(in srgb, var(--accent) 8%, transparent);
     font-size: 16px;
     font-weight: 800;
@@ -1264,11 +1280,13 @@ body.compact .post_thumbnail {
 .post_flair {
     background: var(--accent);
     color: var(--background);
-    padding: 4px;
+    padding: 3px 6px;
     margin-right: 5px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-weight: bold;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
     vertical-align: text-top;
     line-height: 1.6;
 }
@@ -1309,22 +1327,33 @@ body.compact .post_thumbnail {
 }
 
 .nsfw {
-    color: var(--nsfw);
+    color: var(--text);
+    background: rgba(255, 92, 93, 0.2);
+    background: color-mix(in srgb, var(--nsfw) 20%, transparent);
     margin-left: 5px;
-    border: 1px solid var(--nsfw);
-    padding: 3px;
-    font-size: 12px;
-    border-radius: 5px;
-    font-weight: bold;
+    border: 1px solid rgba(255, 92, 93, 0.5);
+    border: 1px solid color-mix(in srgb, var(--nsfw) 50%, transparent);
+    padding: 3px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 3px;
 }
 
 .spoiler {
-    color: var(--spoiler);
+    color: var(--text);
+    background: rgba(224, 216, 210, 0.1);
+    background: color-mix(in srgb, var(--spoiler) 10%, transparent);
     margin-left: 5px;
-    border: 1px solid var(--spoiler);
-    padding: 3px;
-    font-size: 12px;
-    border-radius: 5px;
+    border: 1px solid rgba(224, 216, 210, 0.25);
+    border: 1px solid color-mix(in srgb, var(--spoiler) 25%, transparent);
+    padding: 3px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 3px;
 }
 
 .post_media_content,
@@ -1503,7 +1532,7 @@ body.compact .post_thumbnail {
     grid-area: post_footer;
     display: flex;
     gap: 12px;
-    opacity: 0.5;
+    opacity: 0.6;
     font-size: 12px;
     margin: 6px 0 0 0;
 }
@@ -1538,13 +1567,11 @@ body.compact .post_thumbnail {
 }
 
 .desktop_item {
-    display: auto;
+    display: block;
 }
 
-@media screen and (min-width: 508px) {
-    .mobile_item {
-        display: none;
-    }
+.mobile_item {
+    display: none;
 }
 
 .post_thumbnail {
@@ -1587,7 +1614,7 @@ body.compact .post_thumbnail {
     white-space: nowrap;
     text-align: center;
     background-color: rgba(0, 0, 0, 0.8);
-    color: white;
+    color: #f5f0ed;
     grid-area: 1 / 1 / 2 / 2;
     padding: 5px;
     align-self: end;
@@ -1613,13 +1640,6 @@ body.compact .post_thumbnail {
 .comment img {
     max-width: 50%;
     height: auto;
-}
-
-@media screen and (max-width: 500px) {
-    .comment img {
-        max-width: 80%;
-        height: auto;
-    }
 }
 
 .comment figure {
@@ -1652,11 +1672,11 @@ body.compact .post_thumbnail {
 .author_flair {
     background: var(--highlighted);
     color: var(--text);
-    padding: 5px;
+    padding: 3px 6px;
     margin-right: 5px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-weight: bold;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
 }
 
 .comment_score {
@@ -1772,11 +1792,19 @@ body.compact .post_thumbnail {
 }
 
 .line.depth_1 {
-    background: #44aacc;
+    background: var(--depth-1);
 }
 
 .line.depth_2 {
-    background: #888;
+    background: var(--depth-2);
+}
+
+.line.depth_3 {
+    background: var(--depth-3);
+}
+
+.line.depth_4 {
+    background: var(--depth-4);
 }
 
 .collapse_pill {
@@ -1937,7 +1965,9 @@ input[type="submit"] {
 
 .helper {
     padding: 10px;
-    width: 250px;
+    max-width: 250px;
+    width: 100%;
+    box-sizing: border-box;
     background: var(--highlighted) !important;
 }
 /* Info page */
@@ -2077,7 +2107,7 @@ th {
 #error h1 {
     margin-bottom: 10px;
 }
-#error h3 {
+#error h2 {
     opacity: 0.85;
 }
 #error a {
@@ -2086,7 +2116,7 @@ th {
 
 /* Messages */
 
-#duplicates_msg h3 {
+#duplicates_msg h2 {
     display: inline-block;
     margin-top: 10px;
     margin-bottom: 10px;
@@ -2228,7 +2258,7 @@ th {
         margin-bottom: 5px;
     }
     #searchbox {
-        width: calc(100vw - 20px);
+        width: 100%;
         margin-bottom: 10px;
     }
 
@@ -2307,6 +2337,11 @@ th {
 @media screen and (max-width: 507px) {
     #version {
         display: none;
+    }
+
+    .comment img {
+        max-width: 80%;
+        height: auto;
     }
 
     .post:not(.highlighted) {
@@ -2420,7 +2455,7 @@ th {
         display: none;
     }
     .mobile_item {
-        display: auto;
+        display: block;
     }
 
     .popup {

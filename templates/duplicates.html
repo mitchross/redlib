@@ -26,7 +26,7 @@
         {% else if post.flags.nsfw && prefs.show_nsfw != "on" %}
             <span class="listing_warn">(Enable "Show NSFW posts" in <a href="/settings">settings</a> to show duplicates)</span>
         {% else %}
-            <div id="duplicates_msg"><h3>Duplicates</h3></div>
+            <div id="duplicates_msg"><h2>Duplicates</h2></div>
             {% if num_posts_filtered > 0 %}
             <span class="listing_warn">
                 {% if all_posts_filtered %}
@@ -68,7 +68,7 @@
                             {% if !post.awards.is_empty() && prefs.hide_awards != "on" %}
                                 {% for award in post.awards.clone() %}
                                 <span class="award" title="{{ award.name }}">
-                                    <img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16"/>
+                                    <img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16" loading="lazy"/>
                                 </span>
                                 {% endfor %}
                             {% endif %}
@@ -83,7 +83,7 @@
                             <a href="{{ post.permalink }}">{{ post.title }}</a>{% if post.flags.nsfw %} <small class="nsfw">NSFW</small>{% endif %}
                         </h2>
       
-                        <div class="post_score" title="{{ post.score.1 }}">
+                        <div class="post_score {{ post.score_tier }}" title="{{ post.score.1 }}">
                           {% if prefs.hide_score != "on" %}
                           {{ post.score.0 }}
                           {% else %}

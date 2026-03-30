@@ -12,7 +12,7 @@
          &#x2022;
          {% endif %}
     </p>
-        <div class="line depth_{{ depth.min(2) }}"></div>
+        <div class="line depth_{{ depth.min(4) }}"></div>
 	</div>
 	<details class="comment_right" {% if (!collapsed && !auto_collapsed) || highlighted %}open{% endif %}>
 		<summary class="comment_data">
@@ -30,7 +30,7 @@
 			<span class="dot">&bull;</span>
 			{% for award in awards.clone() %}
 			<span class="award" title="{{ award.name }}">
-				<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16"/>
+				<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16" loading="lazy"/>
 			</span>
 			{% endfor %}
 			{% endif %}

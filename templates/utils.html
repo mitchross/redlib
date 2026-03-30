@@ -23,7 +23,7 @@
 		<label for="restrict_sr" class="search_label" title="Restrict search to this subreddit">in {{ root }}</label>
 	</div>
 	{% endif %}
-	<button class="submit">
+	<button class="submit" aria-label="Search">
 		<svg width="15" viewBox="0 0 110 100" fill="none" stroke-width="10" stroke-linecap="round">
 			<path d="M20 50 H100" />
 			<path d="M75 15 L100 50 L75 85" />
@@ -81,7 +81,7 @@
 		<span class="awards">
 			{% for award in post.awards.clone() %}
 			<span class="award" title="{{ award.name }}">
-				<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16"/>
+				<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16" loading="lazy"/>
 				{{ award.count }}
 			</span>
 			{% endfor %}
@@ -159,7 +159,7 @@
 		{{ post.body|safe }}
 		{% call poll(post) %}
 	</div>
-	<div class="post_score" title="{{ post.score.1 }}">
+	<div class="post_score {{ post.score_tier }}" title="{{ post.score.1 }}">
     {% if prefs.hide_score != "on" %}
     {{ post.score.0 }}
     {% else %}
@@ -246,7 +246,7 @@
 			{% if !post.awards.is_empty() && prefs.hide_awards != "on" %}
 				{% for award in post.awards.clone() %}
 				<span class="award" title="{{ award.name }}">
-					<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16"/>
+					<img alt="{{ award.name }}" src="{{ award.icon_url }}" width="16" height="16" loading="lazy"/>
 				</span>
 				{% endfor %}
 			{% endif %}
@@ -259,7 +259,7 @@
 		{% endif %}
 		{% call poll(post) %}
 		<div class="post_footer">
-			<span class="post_score" title="{{ post.score.1 }}">
+			<span class="post_score {{ post.score_tier }}" title="{{ post.score.1 }}">
 				{% if prefs.hide_score != "on" %}
 				{{ post.score.0 }}
 				{% else %}
