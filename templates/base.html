@@ -37,6 +37,7 @@
 			api_host: '{{ crate::analytics::ANALYTICS.client_host }}',
 			person_profiles: 'always',
 			autocapture: false,
+			disable_compression: true,
 			disable_session_recording: false,
 			loaded: function(ph) { ph.startSessionRecording(); }
 		});
