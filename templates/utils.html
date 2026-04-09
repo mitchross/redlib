@@ -106,7 +106,7 @@
 		<a href="{{ post.media.url }}" class="post_media_image" >
 			{% if post.media.height == 0 || post.media.width == 0 %}
 			<!-- i.redd.it images special case -->
-			<img width="100%" height="100%" loading="lazy" alt="Post image" src="{{ post.media.url }}"/>
+			<img width="100%" height="100%" loading="lazy" decoding="async" alt="Post image" src="{{ post.media.url }}"/>
 			{% else %}
 			<svg
 				width="{{ post.media.width }}px"
@@ -114,7 +114,7 @@
 				xmlns="http://www.w3.org/2000/svg">
 					<image width="100%" height="100%" href="{{ post.media.url }}"/>
 					<desc>
-						<img loading="lazy" alt="Post image" src="{{ post.media.url }}"/>
+						<img loading="lazy" decoding="async" alt="Post image" src="{{ post.media.url }}"/>
 					</desc>
 			</svg>
 			{% endif %}
@@ -124,7 +124,7 @@
 	{% if prefs.use_hls == "on" && !post.media.alt_url.is_empty() %}
 	<script src="/hls.min.js"></script>
 	<div class="post_media_content">
-		<video class="post_media_video short {% if prefs.autoplay_videos == "on" %}hls_autoplay{% endif %}" {% if post.media.width > 0 && post.media.height > 0 %}width="{{ post.media.width }}" height="{{ post.media.height }}"{% endif %} poster="{{ post.media.poster }}" preload="none" controls>
+		<video class="post_media_video short {% if prefs.autoplay_videos == "on" %}hls_autoplay{% endif %}" {% if post.media.width > 0 && post.media.height > 0 %}width="{{ post.media.width }}" height="{{ post.media.height }}"{% endif %} poster="{{ post.media.poster }}" preload="none" playsinline controls>
 			<source src="{{ post.media.alt_url }}" type="application/vnd.apple.mpegurl" />
 			<source src="{{ post.media.url }}" type="video/mp4" />
 		</video>
@@ -132,7 +132,7 @@
 	<script src="/playHLSVideo.js"></script>
 	{% else %}
 	<div class="post_media_content">
-		<video class="post_media_video" src="{{ post.media.url }}" controls {% if prefs.autoplay_videos == "on" %}autoplay{% endif %} loop><a href={{ post.media.url }}>Video</a></video>
+		<video class="post_media_video" src="{{ post.media.url }}" playsinline controls {% if prefs.autoplay_videos == "on" %}autoplay{% endif %} loop><a href={{ post.media.url }}>Video</a></video>
 	</div>
 	{% call render_hls_notification(post.permalink[1..]) %}
 	{% endif %}
@@ -140,7 +140,7 @@
 	<div class="gallery">
 	{% for image in post.gallery -%}
 		<figure>
-			<a href="{{ image.url }}" ><img loading="lazy" alt="Gallery image" src="{{ image.url }}"/></a>
+			<a href="{{ image.url }}" ><img loading="lazy" decoding="async" alt="Gallery image" src="{{ image.url }}"/></a>
 			<figcaption>
 				<p>{{ image.caption }}</p>
 				{% if image.outbound_url.len() > 0 %}
@@ -296,7 +296,7 @@
 			<svg viewBox="0 0 {{ post.thumbnail.width }} {{ post.thumbnail.height }}" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
 				<image width="100%" height="100%" href="{{ post.thumbnail.url }}"/>
 				<desc>
-					<img loading="lazy" alt="Thumbnail" src="{{ post.thumbnail.url }}"/>
+					<img loading="lazy" decoding="async" alt="Thumbnail" src="{{ post.thumbnail.url }}"/>
 				</desc>
 			</svg>
 		</a>
