@@ -167,6 +167,7 @@ body {
     padding-bottom: var(--footer-height);
     font-size: 15px;
     position: relative;
+    overflow-x: hidden;
 }
 
 body.card {
@@ -760,6 +761,10 @@ select,
     box-shadow: var(--shadow);
     border-radius: 5px;
     margin-bottom: 0;
+}
+
+#searchbox:focus-within {
+    outline: 2px solid var(--accent);
 }
 
 #searchbox > *,
@@ -1466,7 +1471,6 @@ body.compact .post_thumbnail {
 .post_body pre {
     background: var(--background);
     overflow-x: auto;
-    margin: 10px 0;
     padding: 10px;
 }
 
@@ -1981,17 +1985,16 @@ input[type="submit"] {
     width: 100%;
 }
 
-.md > p:not(:first-child) {
-    margin-top: 20px;
+.md > :first-child {
+    margin-top: 0;
 }
 
-.md > figure:first-of-type {
-    margin-top: 5px;
-    margin-bottom: 0px;
+.md > :last-child {
+    margin-bottom: 0;
 }
 
-.md > figure:not(:first-of-type) {
-    margin-top: 10px;
+.md > * {
+    margin-bottom: 1.25rem;
 }
 
 .md h1 {
@@ -2011,6 +2014,10 @@ input[type="submit"] {
 }
 .md h6 {
     font-size: 12px;
+}
+
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 1.25rem 0 .75rem;
 }
 
 .md blockquote {
@@ -2051,7 +2058,6 @@ input[type="submit"] {
 .md pre {
     background: var(--outside);
     padding: 20px;
-    margin-top: 10px;
     border-radius: 5px;
     box-shadow: var(--shadow);
     overflow: auto;
@@ -2407,7 +2413,8 @@ th {
         margin-left: 12px;
     }
     .comment_data {
-        margin-left: 12px;
+        margin-left: 8px;
+        padding-left: 8px;
     }
 
     .user-comment .comment_data {

@@ -24,6 +24,7 @@ async fn pwa_logo() -> Result<Response<Body>, String> {
 		Response::builder()
 			.status(200)
 			.header("content-type", "image/png")
+			.header("Cache-Control", "public, max-age=1209600, s-maxage=86400")
 			.body(include_bytes!("../static/logo.png").as_ref().into())
 			.unwrap_or_default(),
 	)
@@ -35,6 +36,7 @@ async fn iphone_logo() -> Result<Response<Body>, String> {
 		Response::builder()
 			.status(200)
 			.header("content-type", "image/png")
+			.header("Cache-Control", "public, max-age=1209600, s-maxage=86400")
 			.body(include_bytes!("../static/apple-touch-icon.png").as_ref().into())
 			.unwrap_or_default(),
 	)
@@ -257,17 +259,17 @@ async fn main() {
 	app.at("/opensearch.xml").get(|_| opensearch().boxed());
 	app
 		.at("/playHLSVideo.js")
-		.get(|_| resource(include_str!("../static/playHLSVideo.js"), "text/javascript", false).boxed());
+		.get(|_| resource(include_str!("../static/playHLSVideo.js"), "text/javascript", true).boxed());
 	app
 		.at("/hls.min.js")
-		.get(|_| resource(include_str!("../static/hls.min.js"), "text/javascript", false).boxed());
+		.get(|_| resource(include_str!("../static/hls.min.js"), "text/javascript", true).boxed());
 	app
 		.at("/highlighted.js")
-		.get(|_| resource(include_str!("../static/highlighted.js"), "text/javascript", false).boxed());
+		.get(|_| resource(include_str!("../static/highlighted.js"), "text/javascript", true).boxed());
 	app
 		.at("/check_update.js")
-		.get(|_| resource(include_str!("../static/check_update.js"), "text/javascript", false).boxed());
-	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", false).boxed());
+		.get(|_| resource(include_str!("../static/check_update.js"), "text/javascript", true).boxed());
+	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", true).boxed());
 
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
