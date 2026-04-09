@@ -108,6 +108,12 @@ pub struct Config {
 
 	#[serde(rename = "REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS")]
 	pub(crate) default_remove_default_feeds: Option<String>,
+
+	#[serde(rename = "REDLIB_DEFAULT_POST_COUNT")]
+	pub(crate) default_post_count: Option<String>,
+
+	#[serde(rename = "REDLIB_DEFAULT_COLLAPSE_DEPTH")]
+	pub(crate) default_collapse_depth: Option<String>,
 }
 
 impl Config {
@@ -156,6 +162,8 @@ impl Config {
 			enable_rss: parse("REDLIB_ENABLE_RSS"),
 			full_url: parse("REDLIB_FULL_URL"),
 			default_remove_default_feeds: parse("REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS"),
+			default_post_count: parse("REDLIB_DEFAULT_POST_COUNT"),
+			default_collapse_depth: parse("REDLIB_DEFAULT_COLLAPSE_DEPTH"),
 		}
 	}
 }
@@ -186,6 +194,8 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),
 		"REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS" => config.default_remove_default_feeds.clone(),
+		"REDLIB_DEFAULT_POST_COUNT" => config.default_post_count.clone(),
+		"REDLIB_DEFAULT_COLLAPSE_DEPTH" => config.default_collapse_depth.clone(),
 		_ => None,
 	}
 }

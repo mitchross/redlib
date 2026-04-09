@@ -81,8 +81,8 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 			let query = form.get("q").unwrap().clone().to_string();
 
 			let comments = match query.as_str() {
-				"" => parse_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &req),
-				_ => query_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &query, &req),
+				"" => parse_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &req, 0),
+				_ => query_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &query, &req, 0),
 			};
 
 			// Use the Post and Comment structs to generate a website to show users
@@ -111,7 +111,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 
 // COMMENTS
 
-fn parse_comments(json: &serde_json::Value, post_link: &str, post_author: &str, highlighted_comment: &str, filters: &HashSet<String>, req: &Request<Body>) -> Vec<Comment> {
+fn parse_comments(json: &serde_json::Value, post_link: &str, post_author: &str, highlighted_comment: &str, filters: &HashSet<String>, req: &Request<Body>, depth: u32) -> Vec<Comment> {
 	// Parse the comment JSON into a Vector of Comments
 	let comments = json["data"]["children"].as_array().map_or(Vec::new(), std::borrow::ToOwned::to_owned);
 
@@ -121,11 +121,11 @@ fn parse_comments(json: &serde_json::Value, post_link: &str, post_author: &str, 
 		.map(|comment| {
 			let data = &comment["data"];
 			let replies: Vec<Comment> = if data["replies"].is_object() {
-				parse_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, req)
+				parse_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, req, depth + 1)
 			} else {
 				Vec::new()
 			};
-			build_comment(&comment, data, replies, post_link, post_author, highlighted_comment, filters, req)
+			build_comment(&comment, data, replies, post_link, post_author, highlighted_comment, filters, req, depth)
 		})
 		.collect()
 }
@@ -138,6 +138,7 @@ fn query_comments(
 	filters: &HashSet<String>,
 	query: &str,
 	req: &Request<Body>,
+	depth: u32,
 ) -> Vec<Comment> {
 	let comments = json["data"]["children"].as_array().map_or(Vec::new(), std::borrow::ToOwned::to_owned);
 	let mut results = Vec::new();
@@ -147,10 +148,10 @@ fn query_comments(
 
 		// If this comment contains replies, handle those too
 		if data["replies"].is_object() {
-			results.append(&mut query_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, query, req));
+			results.append(&mut query_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, query, req, depth + 1));
 		}
 
-		let c = build_comment(&comment, data, Vec::new(), post_link, post_author, highlighted_comment, filters, req);
+		let c = build_comment(&comment, data, Vec::new(), post_link, post_author, highlighted_comment, filters, req, depth);
 		if c.body.to_lowercase().contains(&query.to_lowercase()) {
 			results.push(c);
 		}
@@ -168,6 +169,7 @@ fn build_comment(
 	highlighted_comment: &str,
 	filters: &HashSet<String>,
 	req: &Request<Body>,
+	depth: u32,
 ) -> Comment {
 	let id = val(comment, "id");
 
@@ -226,6 +228,17 @@ fn build_comment(
 	let is_stickied = data["stickied"].as_bool().unwrap_or_default();
 	let collapsed = (is_moderator_comment && is_stickied) || is_filtered;
 
+	let descendant_count: u32 = replies.iter().map(|r| 1 + r.descendant_count).sum();
+	let prefs = Preferences::new(req);
+	let collapse_depth: u32 = if prefs.collapse_depth == "off" {
+		u32::MAX
+	} else if prefs.collapse_depth.is_empty() {
+		2 // Default: collapse at depth 2
+	} else {
+		prefs.collapse_depth.parse().unwrap_or(2)
+	};
+	let auto_collapsed = depth >= collapse_depth;
+
 	Comment {
 		id,
 		kind,
@@ -249,6 +262,9 @@ fn build_comment(
 		collapsed,
 		is_filtered,
 		more_count,
-		prefs: Preferences::new(req),
+		prefs,
+		depth,
+		descendant_count,
+		auto_collapsed,
 	}
 }

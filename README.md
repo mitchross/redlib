@@ -2,6 +2,25 @@
 
 > An alternative private front-end to Reddit, with its origins in [Libreddit](https://github.com/libreddit/libreddit).
 
+## 🔧 This Fork
+
+This is a fork of [redlib-org/redlib](https://github.com/redlib-org/redlib) that includes:
+
+- **Cipher suite fix**: Resolves Reddit's TLS fingerprinting blocking (from [PR #510](https://github.com/redlib-org/redlib/pull/510))
+- **GHCR packages**: Automated Docker image builds published to GitHub Container Registry
+- **Multi-arch support**: Pre-built images for amd64, arm64, and armv7
+
+### Quick Start with Docker
+
+```bash
+docker pull ghcr.io/mitchross/redlib:latest
+docker run -d -p 8080:8080 ghcr.io/mitchross/redlib:latest
+```
+
+See [DOCKER.md](DOCKER.md) for more details.
+
+---
+
 ![screenshot](https://i.ibb.co/18vrdxk/redlib-rust.png)
 
 ---

@@ -332,6 +332,7 @@ pub struct Post {
 	pub link_title: String,
 	pub poll: Option<Poll>,
 	pub score: (String, String),
+	pub score_tier: &'static str,
 	pub upvote_ratio: i64,
 	pub post_type: String,
 	pub flair: Flair,
@@ -413,6 +414,12 @@ impl Post {
 				} else {
 					format_num(score)
 				},
+				score_tier: match score {
+					s if s >= 10000 => "score_hot",
+					s if s >= 1000 => "score_warm",
+					s if s >= 100 => "score_mild",
+					_ => "score_cool",
+				},
 				upvote_ratio: ratio as i64,
 				post_type,
 				thumbnail: Media {
@@ -486,6 +493,9 @@ pub struct Comment {
 	pub is_filtered: bool,
 	pub more_count: i64,
 	pub prefs: Preferences,
+	pub depth: u32,
+	pub descendant_count: u32,
+	pub auto_collapsed: bool,
 }
 
 #[derive(Default, Clone, Serialize)]
@@ -618,7 +628,7 @@ pub struct Params {
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
-#[revisioned(revision = 1)]
+#[revisioned(revision = 2)]
 pub struct Preferences {
 	#[revision(start = 1)]
 	#[serde(skip_serializing, skip_deserializing)]
@@ -667,6 +677,10 @@ pub struct Preferences {
 	pub hide_score: String,
 	#[revision(start = 1)]
 	pub remove_default_feeds: String,
+	#[revision(start = 2)]
+	pub post_count: String,
+	#[revision(start = 2)]
+	pub collapse_depth: String,
 }
 
 fn serialize_vec_with_plus<S>(vec: &[String], serializer: S) -> Result<S::Ok, S::Error>
@@ -725,6 +739,8 @@ impl Preferences {
 			hide_awards: setting(req, "hide_awards"),
 			hide_score: setting(req, "hide_score"),
 			remove_default_feeds: setting(req, "remove_default_feeds"),
+			post_count: setting(req, "post_count"),
+			collapse_depth: setting(req, "collapse_depth"),
 		}
 	}
 
@@ -844,6 +860,12 @@ pub async fn parse_post(post: &Value) -> Post {
 		link_title: val(post, "link_title"),
 		poll,
 		score: format_num(score),
+		score_tier: match score {
+			s if s >= 10000 => "score_hot",
+			s if s >= 1000 => "score_warm",
+			s if s >= 100 => "score_mild",
+			_ => "score_cool",
+		},
 		upvote_ratio: ratio as i64,
 		post_type,
 		media,
@@ -1538,10 +1560,12 @@ mod tests {
 			hide_awards: "off".to_owned(),
 			hide_score: "off".to_owned(),
 			remove_default_feeds: "off".to_owned(),
+			post_count: "25".to_owned(),
+			collapse_depth: "2".to_owned(),
 		};
 		let urlencoded = serde_urlencoded::to_string(prefs).expect("Failed to serialize Prefs");
 
-		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off&remove_default_feeds=off");
+		assert_eq!(urlencoded, "theme=laserwave&front_page=default&layout=compact&wide=on&blur_spoiler=on&show_nsfw=off&blur_nsfw=on&hide_hls_notification=off&video_quality=best&hide_sidebar_and_summary=off&use_hls=on&autoplay_videos=on&fixed_navbar=on&disable_visit_reddit_confirmation=on&comment_sort=confidence&post_sort=top&subscriptions=memes%2Bmildlyinteresting&filters=&hide_awards=off&hide_score=off&remove_default_feeds=off&post_count=25&collapse_depth=2");
 	}
 
 	#[test]
@@ -1650,9 +1674,9 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 	}
 
 	static KNOWN_GOOD_CONFIGS: &[&str] = &[
-		"ఴӅβØØҞÉဏႢձĬ༧ȒʯऌԔӵ୮༏",
-		"ਧՊΥÀÃǎƱГ۸ඣമĖฤ႙ʟาúໜϾௐɥঀĜໃહཞઠѫҲɂఙ࿔ǲઉƲӟӻĻฅΜδ໖ԜǗဖငƦơ৶Ą௩ԹʛใЛʃශаΏ",
-		"ਧԩΥÀÃÎŠ౭൩ඔႠϼҭöҪƸռઇԾॐნɔາǒՍҰच௨ಖມŃЉŐདƦ๙ϩএఠȝഽйʮჯඒϰळՋ௮ສ৵ऎΦѧਹಧଟƙŃ३î༦ŌပղयƟแҜ།",
+		"ยßΏØØΑनయ࿁ΤÀ",
+		"ඤʒഖºÁǗμງɐჭఝଏඎძɍÌયফϚಛȣґഇʇƥɍऒპӳĪଇ၀ԁÀ",
+		"ਪҥΤºÁÔΠΝปţӍț௷࿇ຢĩŇଣяǛϛయਤఽЋƊєॹōජΓͿĞइසςǊȭ",
 	];
 
 	#[test]
@@ -1681,5 +1705,49 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 		let decompressed = if compression { deflate_decompress(compressed).unwrap() } else { compressed };
 		let deserialized: Preferences = bincode::deserialize(&decompressed).unwrap();
 		assert_eq!(*input, deserialized);
+	}
+}
+
+// =====================================
+// ACTIVE USERS TRACKING
+// =====================================
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::RwLock;
+use std::time::Instant;
+
+/// TTL for considering a user "active" (5 minutes)
+const ACTIVE_USER_TTL_SECS: u64 = 300;
+
+/// Storage for active users: maps hashed IP to last seen time
+static ACTIVE_USERS: LazyLock<RwLock<HashMap<u64, Instant>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Hash an IP address string to a u64 for privacy
+fn hash_ip(ip: &str) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	ip.hash(&mut hasher);
+	hasher.finish()
+}
+
+/// Register a visitor by their IP address (hashed for privacy)
+pub fn register_active_user(ip: &str) {
+	let hashed = hash_ip(ip);
+	if let Ok(mut users) = ACTIVE_USERS.write() {
+		users.insert(hashed, Instant::now());
+	}
+}
+
+/// Get the count of active users (seen within TTL)
+pub fn get_active_users_count() -> usize {
+	let now = Instant::now();
+	let ttl = std::time::Duration::from_secs(ACTIVE_USER_TTL_SECS);
+
+	if let Ok(mut users) = ACTIVE_USERS.write() {
+		// Clean up expired entries and count active ones
+		users.retain(|_, last_seen| now.duration_since(*last_seen) < ttl);
+		users.len()
+	} else {
+		0
 	}
 }

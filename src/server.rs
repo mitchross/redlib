@@ -27,7 +27,7 @@ use std::{
 };
 use time::OffsetDateTime;
 
-use crate::{config, dbg_msg};
+use crate::{analytics::ANALYTICS, config, dbg_msg, utils::register_active_user};
 
 const BANNED_USER_AGENTS: &[&str] = &[
 	"AI2Bot",
@@ -336,6 +336,15 @@ impl Server {
 						}
 					}
 
+					// Track active users by IP
+					let ip = req_headers
+						.get("x-forwarded-for")
+						.and_then(|v| v.to_str().ok())
+						.map(|s| s.split(',').next().unwrap_or("").trim())
+						.or_else(|| req_headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
+						.unwrap_or("unknown");
+					register_active_user(ip);
+
 					// Remove double slashes and decode encoded slashes
 					let mut path = req.uri().path().replace("//", "/").replace("%2F", "/");
 
@@ -349,6 +358,39 @@ impl Server {
 						&Method::HEAD => (&Method::GET, true),
 						method => (method, false),
 					};
+
+					// Server-side analytics for HTML navigations only.
+					if method == Method::GET {
+						let accept_html = req_headers
+							.get("accept")
+							.and_then(|v| v.to_str().ok())
+							.map(|v| v.contains("text/html"))
+							.unwrap_or(false);
+
+						if accept_html {
+							let ua = req_headers
+								.get("user-agent")
+								.and_then(|v| v.to_str().ok())
+								.unwrap_or("")
+								.to_owned();
+							let host = req_headers
+								.get("host")
+								.and_then(|v| v.to_str().ok())
+								.unwrap_or("")
+								.to_owned();
+							let referrer = req_headers
+								.get("referer")
+								.and_then(|v| v.to_str().ok())
+								.unwrap_or("")
+								.to_owned();
+							let ip_owned = ip.to_owned();
+							let path_for_event = path.clone();
+
+							tokio::spawn(async move {
+								ANALYTICS.capture_pageview(&path_for_event, &ua, &ip_owned, &host, &referrer).await;
+							});
+						}
+					}
 
 					// Match the visited path with an added route
 					match router.recognize(&format!("/{}{}", method.as_str(), path)) {

@@ -37,8 +37,10 @@ pub async fn profile(req: Request<Body>) -> Result<Response<Body>, String> {
 	let listing = req.param("listing").unwrap_or_else(|| "overview".to_string());
 
 	// Build the Reddit JSON API path
+	let post_count = setting(&req, "post_count");
+	let limit: u32 = post_count.parse().unwrap_or(50).clamp(1, 100);
 	let path = format!(
-		"/user/{}/{listing}.json?{}&raw_json=1",
+		"/user/{}/{listing}.json?{}&raw_json=1&limit={limit}",
 		req.param("name").unwrap_or_else(|| "reddit".to_string()),
 		req.uri().query().unwrap_or_default(),
 	);

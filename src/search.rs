@@ -61,7 +61,9 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 		""
 	};
 	let uri_path = req.uri().path().replace("+", "%2B");
-	let path = format!("{}.json?{}{}&raw_json=1", uri_path, req.uri().query().unwrap_or_default(), nsfw_results);
+	let post_count = setting(&req, "post_count");
+	let limit: u32 = post_count.parse().unwrap_or(50).clamp(1, 100);
+	let path = format!("{}.json?{}{}&raw_json=1&limit={limit}", uri_path, req.uri().query().unwrap_or_default(), nsfw_results);
 	let mut query = param(&path, "q").unwrap_or_default();
 	query = REDDIT_URL_MATCH.replace(&query, "").to_string();
 

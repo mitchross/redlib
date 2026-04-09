@@ -132,6 +132,10 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	}
 
 	let mut params = String::from("&raw_json=1");
+	// Read post count preference, validate and clamp to 1-100
+	let post_count = setting(&req, "post_count");
+	let limit: u32 = post_count.parse().unwrap_or(50).clamp(1, 100);
+	params.push_str(&format!("&limit={limit}"));
 	if sub_name == "popular" {
 		let geo_filter = match GEO_FILTER_MATCH.captures(&query) {
 			Some(geo_filter) => geo_filter["region"].to_string(),

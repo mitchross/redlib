@@ -58,7 +58,7 @@
 			<select name="sort" title="Sort comments by" id="commentSortSelect"> 
 				{% call utils::options(sort, ["confidence", "top", "new", "controversial", "old"], "confidence") %}
       </select>
-        <button id="sort_submit" class="submit">
+        <button id="sort_submit" class="submit" aria-label="Apply sort">
           <svg width="15" viewBox="0 0 110 100" fill="none" stroke-width="10" stroke-linecap="round">
               <path d="M20 50 H100" />
               <path d="M75 15 L100 50 L75 85" />
