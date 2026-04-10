@@ -111,7 +111,15 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 
 // COMMENTS
 
-fn parse_comments(json: &serde_json::Value, post_link: &str, post_author: &str, highlighted_comment: &str, filters: &HashSet<String>, req: &Request<Body>, depth: u32) -> Vec<Comment> {
+fn parse_comments(
+	json: &serde_json::Value,
+	post_link: &str,
+	post_author: &str,
+	highlighted_comment: &str,
+	filters: &HashSet<String>,
+	req: &Request<Body>,
+	depth: u32,
+) -> Vec<Comment> {
 	// Parse the comment JSON into a Vector of Comments
 	let comments = json["data"]["children"].as_array().map_or(Vec::new(), std::borrow::ToOwned::to_owned);
 
@@ -148,7 +156,16 @@ fn query_comments(
 
 		// If this comment contains replies, handle those too
 		if data["replies"].is_object() {
-			results.append(&mut query_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, query, req, depth + 1));
+			results.append(&mut query_comments(
+				&data["replies"],
+				post_link,
+				post_author,
+				highlighted_comment,
+				filters,
+				query,
+				req,
+				depth + 1,
+			));
 		}
 
 		let c = build_comment(&comment, data, Vec::new(), post_link, post_author, highlighted_comment, filters, req, depth);

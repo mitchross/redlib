@@ -1677,11 +1677,7 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 		test_round_trip(&prefs, true);
 	}
 
-	static KNOWN_GOOD_CONFIGS: &[&str] = &[
-		"ยßΏØØΑनయ࿁ΤÀ",
-		"ඤʒഖºÁǗμງɐჭఝଏඎძɍÌયফϚಛȣґഇʇƥɍऒპӳĪଇ၀ԁÀ",
-		"ਪҥΤºÁÔΠΝปţӍț௷࿇ຢĩŇଣяǛϛయਤఽЋƊєॹōජΓͿĞइසςǊȭ",
-	];
+	static KNOWN_GOOD_CONFIGS: &[&str] = &["ยßΏØØΑनయ࿁ΤÀ", "ඤʒഖºÁǗμງɐჭఝଏඎძɍÌયফϚಛȣґഇʇƥɍऒპӳĪଇ၀ԁÀ", "ਪҥΤºÁÔΠΝปţӍț௷࿇ຢĩŇଣяǛϛయਤఽЋƊєॹōජΓͿĞइසςǊȭ"];
 
 	#[test]
 	fn test_known_good_configs_deserialization() {

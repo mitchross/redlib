@@ -16,8 +16,7 @@ struct SessionEntry {
 }
 
 /// Tracks active sessions by distinct_id. Entries expire after SESSION_TIMEOUT.
-static SESSIONS: LazyLock<Mutex<HashMap<String, SessionEntry>>> =
-	LazyLock::new(|| Mutex::new(HashMap::new()));
+static SESSIONS: LazyLock<Mutex<HashMap<String, SessionEntry>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get or create a session ID for a given distinct_id.
 /// Returns a new UUID if no session exists or the previous one expired.
@@ -63,10 +62,7 @@ impl Analytics {
 		let host = env::var("POSTHOG_HOST").unwrap_or_default();
 		let client_host = env::var("POSTHOG_CLIENT_HOST").unwrap_or_default();
 		let api_key = env::var("POSTHOG_API_KEY").unwrap_or_default();
-		let client = Client::builder()
-			.timeout(Duration::from_millis(1500))
-			.build()
-			.expect("analytics client");
+		let client = Client::builder().timeout(Duration::from_millis(1500)).build().expect("analytics client");
 
 		Self {
 			enabled,
@@ -111,13 +107,7 @@ impl Analytics {
 		});
 
 		let url = format!("{}/i/v0/e/", self.host.trim_end_matches('/'));
-		let _ = self
-			.client
-			.post(url)
-			.header("Content-Type", "application/json")
-			.json(&payload)
-			.send()
-			.await;
+		let _ = self.client.post(url).header("Content-Type", "application/json").json(&payload).send().await;
 	}
 }
 
@@ -127,10 +117,7 @@ fn extract_domain(referrer: &str) -> &str {
 		return "";
 	}
 	// Skip past "https://" or "http://"
-	let without_scheme = referrer
-		.strip_prefix("https://")
-		.or_else(|| referrer.strip_prefix("http://"))
-		.unwrap_or(referrer);
+	let without_scheme = referrer.strip_prefix("https://").or_else(|| referrer.strip_prefix("http://")).unwrap_or(referrer);
 	// Take everything before the first '/'
 	without_scheme.split('/').next().unwrap_or("")
 }

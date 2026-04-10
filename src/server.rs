@@ -361,28 +361,12 @@ impl Server {
 
 					// Server-side analytics for HTML navigations only.
 					if method == Method::GET {
-						let accept_html = req_headers
-							.get("accept")
-							.and_then(|v| v.to_str().ok())
-							.map(|v| v.contains("text/html"))
-							.unwrap_or(false);
+						let accept_html = req_headers.get("accept").and_then(|v| v.to_str().ok()).map(|v| v.contains("text/html")).unwrap_or(false);
 
 						if accept_html {
-							let ua = req_headers
-								.get("user-agent")
-								.and_then(|v| v.to_str().ok())
-								.unwrap_or("")
-								.to_owned();
-							let host = req_headers
-								.get("host")
-								.and_then(|v| v.to_str().ok())
-								.unwrap_or("")
-								.to_owned();
-							let referrer = req_headers
-								.get("referer")
-								.and_then(|v| v.to_str().ok())
-								.unwrap_or("")
-								.to_owned();
+							let ua = req_headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+							let host = req_headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+							let referrer = req_headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
 							let ip_owned = ip.to_owned();
 							let path_for_event = path.clone();
 

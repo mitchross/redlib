@@ -114,10 +114,7 @@ impl Oauth {
 			failure_count += 1;
 
 			// If not forced, switch to GenericWeb after 5 failures with MobileSpoof
-			if forced_backend.as_deref().is_none()
-				&& matches!(backend, OauthBackendImpl::MobileSpoof(_))
-				&& failure_count >= 5
-			{
+			if forced_backend.as_deref().is_none() && matches!(backend, OauthBackendImpl::MobileSpoof(_)) && failure_count >= 5 {
 				warn!("[🔄] MobileSpoofAuth failed 5 times. Falling back to GenericWebAuth...");
 				backend = OauthBackendImpl::GenericWeb(GenericWebAuth::new());
 			}
@@ -504,6 +501,7 @@ mod tests {
 	}
 
 	#[tokio::test(flavor = "multi_thread")]
+	#[ignore = "requires network access to Reddit (blocked in CI)"]
 	async fn test_generic_web_backend() {
 		// Test GenericWebAuth backend specifically
 		let mut backend = GenericWebAuth::new();
