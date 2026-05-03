@@ -22,3 +22,11 @@ Best-effort approach — no formal WCAG compliance target, but follow good pract
 3. **Smart information density**: Collapse noise (joke chains, repetitive comments) while keeping signal. Give users tools to quickly find the substance in threads.
 4. **Fast and tactile navigation**: Mobile experience should feel snappy and fluid. Quick transitions, easy back/forward, minimal loading friction.
 5. **Personality through craft**: The interface should evoke delight — not through flashy animations, but through thoughtful details, good typography, and interactions that feel right.
+
+## Mink capture
+
+Keep Mink updated during substantive work. Mink hooks may track session activity automatically, but durable project knowledge still needs explicit capture with `mink note` or the `/mink:note` skill.
+
+Capture decisions that change architecture or operations, verified bug root causes, live-system gotchas, reusable patterns, and future-operator context. Do not capture routine edits, raw command output, or unverified hypotheses.
+
+Use `mink note --project redlib --category resources` for durable runbooks/gotchas/patterns and `--category projects` for active decisions or followups. Mention saved Mink note paths in the final response.
