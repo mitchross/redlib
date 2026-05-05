@@ -863,6 +863,7 @@ button.submit:hover > svg {
     display: flex;
     align-items: stretch;
     margin-bottom: 20px;
+    gap: 8px;
 }
 
 #commentQueryForms #sort {
@@ -931,6 +932,7 @@ button.submit:hover > svg {
 }
 
 #sort_options,
+#view_options,
 #listing_options,
 main > * > footer > a {
     border-radius: 5px;
@@ -942,6 +944,7 @@ main > * > footer > a {
 }
 
 #sort_options > a,
+#view_options > a,
 #listing_options > a,
 main > * > footer > a {
     color: var(--text);
@@ -958,6 +961,7 @@ main > * > footer > a {
 }
 
 #sort_options > a.selected,
+#view_options > a.selected,
 #listing_options > a.selected {
     background: var(--accent);
     color: var(--foreground);
@@ -965,8 +969,19 @@ main > * > footer > a {
 }
 
 #sort_options > a:not(.selected):hover,
+#view_options > a:not(.selected):hover,
 #listing_options > a:not(.selected):hover {
     background: var(--foreground);
+}
+
+#view_options {
+    display: flex;
+    background: var(--outside);
+}
+
+#view_options > a {
+    letter-spacing: 0;
+    text-transform: none;
 }
 
 #search_subreddits {
@@ -1369,8 +1384,14 @@ body.compact .post_thumbnail {
 .post.highlighted .post_footer {
     margin: 5px 20px 15px 12px;
     gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
     justify-content: space-between;
     opacity: 0.68;
+}
+
+.post.highlighted .post_footer > p {
+    margin-left: auto;
 }
 
 .post.highlighted .post_thumbnail {
@@ -1672,17 +1693,24 @@ body.compact .post_thumbnail {
 
 #post_links {
     display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
     list-style: none;
     padding: 0;
     font-weight: bold;
 }
 
 #post_links > li {
-    margin-right: 15px;
+    margin-right: 0;
+}
+
+#post_links a {
+    white-space: nowrap;
 }
 
 .desktop_item {
-    display: block;
+    display: inline;
 }
 
 .mobile_item {
