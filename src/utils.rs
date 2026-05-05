@@ -1573,6 +1573,17 @@ mod tests {
 	}
 
 	#[test]
+	fn serialize_gallery_layout_pref() {
+		let prefs = Preferences {
+			layout: "gallery".to_owned(),
+			..Default::default()
+		};
+		let urlencoded = serde_urlencoded::to_string(prefs).expect("Failed to serialize Prefs");
+
+		assert!(urlencoded.contains("layout=gallery"));
+	}
+
+	#[test]
 	fn test_rewriting_emoji() {
 		let input = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		let output = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;

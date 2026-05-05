@@ -8,3 +8,6 @@ redlib.toml
 # nix files
 .direnv/
 result
+
+# Superpowers visual brainstorming artifacts
+.superpowers/

@@ -57,7 +57,7 @@
 			{% if all_posts_filtered %}
 				 <center>(All content on this page has been filtered)</center>
 			{% else %}
-			<div id="posts">
+			<div id="posts" {% if prefs.layout == "gallery" %}class="post-gallery"{% endif %}>
 			{% for post in posts %}
 			{% if !(post.flags.nsfw && prefs.show_nsfw != "on") %}
 			<hr class="sep" />
