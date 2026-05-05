@@ -107,7 +107,14 @@ impl Analytics {
 		});
 
 		let url = format!("{}/i/v0/e/", self.host.trim_end_matches('/'));
-		let _ = self.client.post(url).header("Content-Type", "application/json").header("X-Forwarded-For", ip).json(&payload).send().await;
+		let _ = self
+			.client
+			.post(url)
+			.header("Content-Type", "application/json")
+			.header("X-Forwarded-For", ip)
+			.json(&payload)
+			.send()
+			.await;
 	}
 }
 

@@ -849,6 +849,9 @@ button.submit:hover > svg {
 #commentQueryForms {
     display: flex;
     justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin: 4px 0 12px;
 }
 
 #allCommentsLink {
@@ -860,6 +863,23 @@ button.submit:hover > svg {
     display: flex;
     align-items: stretch;
     margin-bottom: 20px;
+}
+
+#commentQueryForms #sort {
+    margin-bottom: 0;
+}
+
+#commentQueryForms select,
+#commentQueryForms .commentQuery,
+#commentQueryForms #sort_submit {
+    border: var(--panel-border);
+    background: var(--outside);
+}
+
+#commentQueryForms select:focus-visible,
+#commentQueryForms .commentQuery:focus-visible,
+#commentQueryForms #sort_submit:focus-visible {
+    outline-offset: 0;
 }
 
 #search_sort > .search_widget_divider_box {
@@ -1158,6 +1178,93 @@ body.compact .post_thumbnail {
     border-radius: 3px;
 }
 
+#posts.post-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+#posts.post-gallery .sep {
+    display: none;
+}
+
+#posts.post-gallery .post:not(.highlighted) {
+    display: grid;
+    grid-template:
+        "post_thumbnail" auto
+        "post_content" minmax(0, 1fr)
+        / minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+    margin: 0;
+    align-content: start;
+    min-width: 0;
+}
+
+#posts.post-gallery .post:not(.highlighted):hover {
+    transform: none;
+    box-shadow: var(--shadow);
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_content {
+    grid-area: post_content;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_thumbnail {
+    grid-area: post_thumbnail;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    border-radius: 5px;
+    background: var(--foreground);
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_header {
+    order: 2;
+    margin-top: 5px;
+    font-size: 10px;
+    letter-spacing: 0;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_body,
+#posts.post-gallery .post:not(.highlighted) .post_poll {
+    display: none;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_footer {
+    order: 3;
+    gap: 8px;
+    margin-top: 5px;
+    font-size: 11px;
+    opacity: 0.72;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_share,
+#posts.post-gallery .post:not(.highlighted) .post_domain {
+    display: none;
+}
+
+#posts.post-gallery .post:not(.highlighted) .post_score {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--visited);
+    text-shadow: none;
+}
+
 .post_score {
     font-size: 14px;
     font-weight: 800;
@@ -1209,11 +1316,12 @@ body.compact .post_thumbnail {
     margin: 2px 0;
 }
 
-/* Post detail view — restore original grid layout exactly */
+/* Post detail view */
 .post.highlighted {
     border-radius: 5px;
     background: var(--post);
-    box-shadow: var(--shadow);
+    border: var(--panel-border);
+    box-shadow: none;
     display: grid;
     transition: background 200ms var(--ease-out-quart);
     grid-template:
@@ -1235,31 +1343,34 @@ body.compact .post_thumbnail {
     padding-left: 12px;
     text-align: center;
     border-radius: 5px 0 0 5px;
-    background: rgba(224, 67, 79, 0.08);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    font-size: 16px;
-    font-weight: 800;
+    background: rgba(224, 67, 79, 0.04);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+    color: var(--visited);
+    font-size: 14px;
+    font-weight: 650;
     transition: background 200ms var(--ease-out-quart);
 }
 
 .post.highlighted .post_header {
-    margin: 15px 20px 5px 12px;
-    line-height: 25px;
-    font-size: inherit;
-    color: inherit;
+    margin: 14px 20px 4px 12px;
+    line-height: 1.5;
+    font-size: 12px;
+    color: var(--visited);
+    letter-spacing: 0;
 }
 
 .post.highlighted .post_title {
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.025em;
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: 0;
     margin: 5px 15px 5px 12px;
 }
 
 .post.highlighted .post_footer {
     margin: 5px 20px 15px 12px;
-    gap: 0;
+    gap: 12px;
     justify-content: space-between;
+    opacity: 0.68;
 }
 
 .post.highlighted .post_thumbnail {
@@ -1636,8 +1747,8 @@ body.compact .post_thumbnail {
 /* Comment */
 
 .comment {
-    margin: 10px 0;
-    border-radius: 5px;
+    margin: 8px 0;
+    border-radius: 4px;
     display: flex;
 }
 
@@ -1658,8 +1769,8 @@ body.compact .post_thumbnail {
 
 .comment_left {
     text-align: center;
-    min-width: 50px;
-    padding: 5px 0;
+    min-width: 42px;
+    padding: 4px 0;
     align-items: center;
 }
 
@@ -1670,7 +1781,8 @@ body.compact .post_thumbnail {
     text-decoration: underline;
 }
 .comment_author {
-    opacity: 0.9;
+    opacity: 0.88;
+    font-weight: 600;
 }
 
 .author_flair {
@@ -1684,18 +1796,18 @@ body.compact .post_thumbnail {
 }
 
 .comment_score {
-    color: var(--accent);
-    background: var(--foreground);
-    min-width: 40px;
-    border-radius: 5px;
-    padding: 10px 0;
-    font-size: 14px;
-    font-weight: 600;
+    color: var(--visited);
+    background: transparent;
+    min-width: 34px;
+    border-radius: 4px;
+    padding: 6px 0;
+    font-size: 12px;
+    font-weight: 550;
 }
 
 .comment_right {
     word-wrap: anywhere;
-    padding: 10px 0 10px 5px;
+    padding: 8px 0 8px 4px;
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
@@ -1729,11 +1841,12 @@ body.compact .post_thumbnail {
 }
 
 .comment_body {
-    opacity: 0.9;
+    opacity: 0.92;
     font-weight: normal;
-    padding: 5px 5px;
-    margin: 5px 0;
+    padding: 3px 5px;
+    margin: 4px 0;
     overflow: auto;
+    line-height: 1.5;
 }
 
 .comment_body.highlighted,
@@ -1769,8 +1882,8 @@ body.compact .post_thumbnail {
 }
 
 .replies > .comment {
-    margin-left: -20px;
-    padding: 5px;
+    margin-left: -18px;
+    padding: 4px 0 4px 5px;
 }
 
 .created {
@@ -1784,45 +1897,49 @@ body.compact .post_thumbnail {
 }
 
 .line {
-    width: 3px;
+    width: 2px;
     height: 100%;
-    background: var(--foreground);
+    background: var(--highlighted);
     border-radius: 2px;
     cursor: pointer;
 }
 
 .line.depth_0 {
-    background: var(--accent);
+    background: var(--visited);
 }
 
 .line.depth_1 {
     background: var(--depth-1);
+    background: color-mix(in srgb, var(--depth-1) 58%, var(--foreground));
 }
 
 .line.depth_2 {
     background: var(--depth-2);
+    background: color-mix(in srgb, var(--depth-2) 45%, var(--foreground));
 }
 
 .line.depth_3 {
     background: var(--depth-3);
+    background: color-mix(in srgb, var(--depth-3) 38%, var(--foreground));
 }
 
 .line.depth_4 {
     background: var(--depth-4);
+    background: color-mix(in srgb, var(--depth-4) 35%, var(--foreground));
 }
 
 .collapse_pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: var(--outside);
+    background: transparent;
     border: var(--panel-border);
     border-radius: 4px;
-    padding: 8px 12px;
+    padding: 6px 10px;
     color: var(--visited);
     font-size: 12px;
     cursor: pointer;
-    margin-top: 4px;
+    margin-top: 3px;
     transition: background 150ms var(--ease-out-quart),
                 color 150ms var(--ease-out-quart);
 }
@@ -1838,6 +1955,9 @@ details[open] > summary .collapse_pill {
 
 summary.comment_data {
     cursor: pointer;
+    color: var(--visited);
+    font-size: 13px;
+    line-height: 1.4;
 }
 
 .user_comment_data_divider {
@@ -2335,8 +2455,25 @@ th {
 
 @media screen and (max-width: 580px) {
     #commentQueryForms {
-        display: initial;
+        display: grid;
         justify-content: initial;
+        gap: 8px;
+    }
+
+    #commentQueryForms #sort {
+        width: 100%;
+    }
+
+    #commentQueryForms #commentSortSelect,
+    #commentQueryForms .commentQuery {
+        flex: 1;
+        min-width: 0;
+        width: 100%;
+    }
+
+    #posts.post-gallery {
+        grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+        gap: 10px;
     }
 }
 
@@ -2446,8 +2583,8 @@ th {
         min-width: 34px;
         height: 20px;
         font-size: 12px;
-        padding: 7px 0px;
-        margin-right: -5px;
+        padding: 4px 0px;
+        margin-right: -3px;
         align-content: center;
     }
 
@@ -2508,6 +2645,10 @@ th {
     body.clean {
         --thumb-width: 70px;
         --thumb-height: 55px;
+    }
+
+    #posts.post-gallery {
+        grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
     }
 }
 

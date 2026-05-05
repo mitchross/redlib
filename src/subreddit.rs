@@ -171,8 +171,8 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 				let no_posts = posts.is_empty();
 				let all_posts_hidden_nsfw = !no_posts && (posts.iter().all(|p| p.flags.nsfw) && setting(&req, "show_nsfw") != "on");
 				if sort == "new" {
-					posts.sort_by(|a, b| b.created_ts.cmp(&a.created_ts));
-					posts.sort_by(|a, b| b.flags.stickied.cmp(&a.flags.stickied));
+					posts.sort_by_key(|p| std::cmp::Reverse(p.created_ts));
+					posts.sort_by_key(|p| std::cmp::Reverse(p.flags.stickied));
 				}
 				Ok(template(&SubredditTemplate {
 					sub,
