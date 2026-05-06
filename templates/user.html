@@ -11,6 +11,15 @@ body %}
                 {% call utils::sort(["/user/", user.name.as_str()].concat(),
                 ["overview", "comments", "submitted"], listing) %}
             </div>
+            <div id="view_options" aria-label="Post layout">
+                {% if prefs.layout == "gallery" %}
+                    <a href="/settings/update?layout=card&redirect={{ redirect_url }}">List</a>
+                    <a class="selected" href="{{ url }}">Gallery</a>
+                {% else %}
+                    <a class="selected" href="{{ url }}">List</a>
+                    <a href="/settings/update?layout=gallery&redirect={{ redirect_url }}">Gallery</a>
+                {% endif %}
+            </div>
             <select id="sort_select" name="sort">
                 {% call utils::options(sort.0, ["hot", "new", "top",
                 "controversial"], "") %}</select
@@ -45,7 +54,7 @@ body %}
         {% endif %} {% if all_posts_filtered %}
         <center>(All content on this page has been filtered)</center>
         {% else %}
-        <div id="posts">
+        <div id="posts" {% if prefs.layout == "gallery" %}class="post-gallery"{% endif %}>
             {% for post in posts %} {% if post.flags.nsfw && prefs.show_nsfw !=
             "on" %} {% else if !post.title.is_empty() %} {% call
             utils::post_in_list(post) %} {% else %}

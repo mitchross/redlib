@@ -1203,6 +1203,12 @@ body.compact .post_thumbnail {
     display: none;
 }
 
+/* User overview/comments: render comment items full-width in gallery view
+   so they don't get squeezed into a single 180px grid cell. */
+#posts.post-gallery > .comment.user-comment {
+    grid-column: 1 / -1;
+}
+
 #posts.post-gallery .post:not(.highlighted) {
     display: grid;
     grid-template:
@@ -2451,10 +2457,13 @@ th {
     }
 
     /* Wider tap area for comment thread lines.
-       Vertical padding must remain 0 for background-clip to work correctly. */
+       Vertical padding must remain 0 for background-clip to work correctly.
+       Visible bar is hairline-thin on mobile; padding provides the touch target. */
     .line {
-        padding: 0 8px;
+        width: 1px;
+        padding: 0 9px;
         background-clip: content-box;
+        border-radius: 1px;
     }
 
     /* Prevent deep comment nesting overflow */
