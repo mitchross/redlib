@@ -2462,6 +2462,32 @@ input[type="submit"] {
     color: var(--accent);
 }
 
+/* Subscription import */
+#settings_import textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface-hover);
+    border: var(--panel-border);
+    border-radius: var(--radius-s);
+    color: var(--text);
+    font-family: inherit;
+    font-size: var(--font-m);
+    padding: var(--space-2) var(--space-3);
+    margin: var(--space-2) 0;
+    resize: vertical;
+}
+
+#settings_import .import_hint {
+    font-size: var(--font-m);
+    opacity: 0.85;
+    line-height: 1.5;
+    margin-top: var(--space-2);
+}
+
+#settings_import .import_hint a {
+    color: var(--accent);
+}
+
 .helper {
     padding: 10px;
     max-width: 250px;

@@ -178,6 +178,25 @@
 		{% endfor %}
 	</div>
 	{% endif %}
+	<div class="prefs" id="settings_import">
+		<legend>Import subscriptions from Reddit</legend>
+		<p class="import_hint">
+			While logged into Reddit in this browser, open
+			<a href="https://www.reddit.com/subreddits/mine.json" rel="nofollow noreferrer" target="_blank">reddit.com/subreddits/mine.json</a>,
+			copy everything, and paste it below. Reddit's data-export
+			<code>subscribed_subreddits.csv</code> or a plain list (one subreddit per
+			line, <code>r/name</code>, or full URLs) also works. Your list is sent
+			once to this instance to be parsed and is stored only in this browser's
+			cookies &mdash; nothing is kept on the server and your Reddit account is
+			never linked to it.
+		</p>
+		<form action="/settings/import-subscriptions/" method="POST">
+			<textarea id="import_data" name="import_data" rows="4" required
+				placeholder="Paste mine.json, CSV, or a list like: r/rust r/selfhosted"></textarea>
+			<button class="import" type="submit">Import</button>
+		</form>
+	</div>
+
 	{% if !prefs.filters.is_empty() %}
 	<div class="prefs" id="settings_filters">
 		<legend>Filtered Feeds</legend>

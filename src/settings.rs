@@ -274,6 +274,129 @@ pub async fn update(req: Request<Body>) -> Result<Response<Body>, String> {
 	Ok(set_cookies_method(req, false))
 }
 
+/// Bulk-import subscriptions pasted from Reddit. Accepts the JSON from
+/// reddit.com/subreddits/mine.json, the GDPR-export subscribed_subreddits.csv,
+/// or a plain newline/comma-separated list. POST-only so the list never
+/// appears in URLs, access logs, or browser history; the result is stored
+/// exclusively in this browser's subscription cookies.
+pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, String> {
+	let (parts, body) = req.into_parts();
+
+	let body_bytes = hyper::body::to_bytes(body).await.map_err(|e| format!("Failed to read request body: {e}"))?;
+	if body_bytes.len() > 1024 * 1024 {
+		return Err("Request body too large".to_string());
+	}
+
+	let import_data = form_urlencoded::parse(&body_bytes)
+		.find(|(key, _)| key == "import_data")
+		.map(|(_, value)| value.into_owned())
+		.unwrap_or_default();
+
+	// Existing cookie header, needed to clean up stale numbered cookies
+	let cookies_string = parts.headers.get("cookie").map(|hv| hv.to_str().unwrap_or("").to_string()).unwrap_or_default();
+
+	// Existing subscriptions from this browser's cookies
+	let req = Request::from_parts(parts, Body::empty());
+	let mut sub_list = Preferences::new(&req).subscriptions;
+
+	// Merge (case-insensitive dedupe), then sort like the subscribe endpoint
+	for name in parse_subreddit_names(&import_data) {
+		if !sub_list.iter().any(|s| s.to_lowercase() == name.to_lowercase()) {
+			sub_list.push(name);
+		}
+	}
+	sub_list.sort_by_key(|a| a.to_lowercase());
+
+	let mut response = redirect("/settings");
+
+	let mut subscriptions_number_to_delete_from = 0;
+	for (subscriptions_number, list) in join_until_size_limit(&sub_list).into_iter().enumerate() {
+		let subscriptions_cookie = if subscriptions_number == 0 {
+			"subscriptions".to_string()
+		} else {
+			format!("subscriptions{subscriptions_number}")
+		};
+
+		response.insert_cookie(
+			Cookie::build((subscriptions_cookie, list))
+				.path("/")
+				.http_only(true)
+				.expires(OffsetDateTime::now_utc() + Duration::weeks(52))
+				.into(),
+		);
+
+		subscriptions_number_to_delete_from += 1;
+	}
+
+	// Remove any leftover numbered subscription cookies beyond what we just set
+	while cookies_string.contains(&format!("subscriptions{subscriptions_number_to_delete_from}=")) {
+		response.remove_cookie(format!("subscriptions{subscriptions_number_to_delete_from}"));
+		subscriptions_number_to_delete_from += 1;
+	}
+
+	Ok(response)
+}
+
+/// Extract subreddit names from pasted import data (JSON listing, CSV, or a
+/// plain list of names/URLs).
+fn parse_subreddit_names(input: &str) -> Vec<String> {
+	let trimmed = input.trim();
+	let mut names = Vec::new();
+
+	// reddit.com/subreddits/mine.json (or any Reddit listing JSON): collect
+	// every "display_name" field
+	if trimmed.starts_with('{') || trimmed.starts_with('[') {
+		if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+			collect_display_names(&json, &mut names);
+		}
+	}
+
+	// GDPR CSV or plain list: one name, r/name, or URL per token
+	if names.is_empty() {
+		for token in trimmed.split(|c: char| c == ',' || c.is_whitespace()) {
+			let token = token.trim().trim_matches('"').trim_matches('\'');
+			let token = token
+				.trim_start_matches("https://")
+				.trim_start_matches("http://")
+				.trim_start_matches("www.")
+				.trim_start_matches("old.")
+				.trim_start_matches("reddit.com");
+			let token = token.trim_matches('/');
+			let token = token.strip_prefix("r/").unwrap_or(token);
+
+			// Skip the GDPR CSV header line
+			if token.is_empty() || token.eq_ignore_ascii_case("subreddit") {
+				continue;
+			}
+
+			if token.len() <= 24 && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+				names.push(token.to_string());
+			}
+		}
+	}
+
+	names
+}
+
+fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
+	match value {
+		serde_json::Value::Object(map) => {
+			if let Some(serde_json::Value::String(name)) = map.get("display_name") {
+				names.push(name.clone());
+			}
+			for v in map.values() {
+				collect_display_names(v, names);
+			}
+		}
+		serde_json::Value::Array(arr) => {
+			for v in arr {
+				collect_display_names(v, names);
+			}
+		}
+		_ => {}
+	}
+}
+
 pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, String> {
 	let body = hyper::body::to_bytes(req.into_body())
 		.await
