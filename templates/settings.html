@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block content %}
+<script src="/themePreview.js?v={{ env!("REDLIB_BUILD_STAMP") }}" defer></script>
 <div id="settings">
 	<form action="/settings" method="POST">
 		<div class="prefs">

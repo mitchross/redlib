@@ -1,14 +1,18 @@
-/* Dark theme setting */
-.dark{
-	--accent: #d54455;
-	--green: #5cff85;
-	--text: white;
-	--foreground: #222;
-	--background: #0f0f0f;
-	--outside: #1f1f1f;
-	--post: #161616;
-	--panel-border: 1px solid #333;
-	--highlighted: #333;
-	--visited: #aaa;
-	--shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+/* Dark theme setting — matches modern Reddit dark */
+.dark {
+	--accent: #d93a00;
+	--green: #46d160;
+	--text: #eef1f3;
+	--foreground: #1e2a2e;
+	--background: #0b1416;
+	--outside: #101b1f;
+	--post: #111c20;
+	--panel-border: 1px solid #2a3a40;
+	--highlighted: #1b2a2e;
+	--visited: #8ba2ab;
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+html:has(> .dark) {
+	color-scheme: dark;
 }

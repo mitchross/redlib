@@ -8,6 +8,14 @@ use std::os::windows::process::ExitStatusExt;
 
 fn main() {
 	println!("cargo:rerun-if-changed=src/");
+	// Rebuild when static assets change, and stamp each build so asset URLs
+	// (style.css?v=...) bust browser caches automatically.
+	println!("cargo:rerun-if-changed=static/");
+	let stamp = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_secs())
+		.unwrap_or_default();
+	println!("cargo:rustc-env=REDLIB_BUILD_STAMP={stamp}");
 	let output = String::from_utf8(
 		Command::new("git")
 			.args(["rev-parse", "HEAD"])

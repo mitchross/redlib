@@ -274,6 +274,10 @@ async fn main() {
 		.get(|_| resource(include_str!("../static/check_update.js"), "text/javascript", true).boxed());
 	app.at("/copy.js").get(|_| resource(include_str!("../static/copy.js"), "text/javascript", true).boxed());
 
+	app
+		.at("/themePreview.js")
+		.get(|_| resource(include_str!("../static/themePreview.js"), "text/javascript", true).boxed());
+
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
 

@@ -180,6 +180,24 @@ pub struct Media {
 	pub height: i64,
 	pub poster: String,
 	pub download_name: String,
+	/// Medium-resolution preview for feed cards (empty when unavailable).
+	pub preview_url: String,
+}
+
+/// Pick the largest preview no wider than 640px from a Reddit resolutions
+/// array, so listings can avoid loading full-size source images.
+fn medium_preview(resolutions: &Value, url_key: &str, width_key: &str) -> String {
+	resolutions
+		.as_array()
+		.and_then(|res| {
+			res
+				.iter()
+				.filter(|r| r[width_key].as_i64().unwrap_or_default() <= 640)
+				.max_by_key(|r| r[width_key].as_i64().unwrap_or_default())
+		})
+		.and_then(|r| r[url_key].as_str())
+		.map(format_url)
+		.unwrap_or_default()
 }
 
 impl Media {
@@ -274,6 +292,7 @@ impl Media {
 				height: source["height"].as_i64().unwrap_or_default(),
 				poster: format_url(source["url"].as_str().unwrap_or_default()),
 				download_name,
+				preview_url: medium_preview(&data["preview"]["images"][0]["resolutions"], "url", "width"),
 			},
 			gallery,
 		)
@@ -287,6 +306,8 @@ pub struct GalleryMedia {
 	pub height: i64,
 	pub caption: String,
 	pub outbound_url: String,
+	/// Medium-resolution preview for feed cards (empty when unavailable).
+	pub preview_url: String,
 }
 
 impl GalleryMedia {
@@ -314,6 +335,7 @@ impl GalleryMedia {
 					height: image["y"].as_i64().unwrap_or_default(),
 					caption: item["caption"].as_str().unwrap_or_default().to_string(),
 					outbound_url: item["outbound_url"].as_str().unwrap_or_default().to_string(),
+					preview_url: medium_preview(&metadata[media_id]["p"], "u", "x"),
 				}
 			})
 			.collect::<Vec<Self>>()
@@ -429,6 +451,7 @@ impl Post {
 					height: data["thumbnail_height"].as_i64().unwrap_or_default(),
 					poster: String::new(),
 					download_name: String::new(),
+					preview_url: String::new(),
 				},
 				media,
 				domain: val(post, "domain"),
@@ -876,6 +899,7 @@ pub async fn parse_post(post: &Value) -> Post {
 			height: post["data"]["thumbnail_height"].as_i64().unwrap_or_default(),
 			poster: String::new(),
 			download_name: String::new(),
+			preview_url: String::new(),
 		},
 		flair: Flair {
 			flair_parts: FlairPart::parse(

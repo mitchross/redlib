@@ -57,6 +57,26 @@
 	</details>
 {%- endmacro %}
 
+{% macro side_nav(current) -%}
+<nav id="sidenav" aria-label="Main navigation">
+	<p class="sidenav_label">Feeds</p>
+	<a href="/"{% if current == "" %} class="selected" aria-current="page"{% endif %}>Home</a>
+	{% if prefs.remove_default_feeds != "on" %}
+		<a href="/r/popular"{% if current == "popular" %} class="selected" aria-current="page"{% endif %}>Popular</a>
+		<a href="/r/all"{% if current == "all" %} class="selected" aria-current="page"{% endif %}>All</a>
+	{% endif %}
+	{% if prefs.subscriptions.len() > 0 %}
+		<p class="sidenav_label">Subscriptions</p>
+		{% for sub in prefs.subscriptions %}
+			<a href="/r/{{ sub }}"{% if sub == current %} class="selected" aria-current="page"{% endif %}>{{ sub }}</a>
+		{% endfor %}
+	{% endif %}
+	<p class="sidenav_label">Redlib</p>
+	<a href="/settings">Settings</a>
+	<a href="/info">Instance info</a>
+</nav>
+{%- endmacro %}
+
 {% macro render_hls_notification(redirect_url) -%}
 {% if post.post_type == "video" && !post.media.alt_url.is_empty() && prefs.hide_hls_notification != "on" %}
 <div class="post_notification"><p><a href="/settings/update/?use_hls=on&redirect={{ redirect_url }}">Enable HLS</a> to view with audio, or <a href="/settings/update/?hide_hls_notification=on&redirect={{ redirect_url }}">disable this notification</a></p></div>
@@ -111,6 +131,7 @@
 			<svg
 				width="{{ post.media.width }}px"
 				height="{{ post.media.height }}px"
+				viewBox="0 0 {{ post.media.width }} {{ post.media.height }}"
 				xmlns="http://www.w3.org/2000/svg">
 					<image width="100%" height="100%" href="{{ post.media.url }}"/>
 					<desc>
@@ -219,6 +240,8 @@
 
 {% macro post_in_list(post) -%}
 {% set post_should_be_blurred = (post.flags.nsfw && prefs.blur_nsfw=="on") || (post.flags.spoiler && prefs.blur_spoiler=="on") -%}
+{% set large_media_layout = prefs.layout.is_empty() || prefs.layout == "card" || prefs.layout == "gallery" -%}
+{% set show_media_preview = large_media_layout && (post.post_type == "image" || ((post.post_type == "video" || post.post_type == "gif") && !post.media.poster.is_empty()) || (post.post_type == "gallery" && post.gallery.len() > 0)) -%}
 <div class="post{% if post.flags.stickied %} stickied{% endif %}{% if post_should_be_blurred %} post_blurred{% endif %}" id="{{ post.id }}">
 	<div class="post_content">
 		<div class="post_header">
@@ -257,26 +280,57 @@
 			{{ post.body|safe }}
 		</div>
 		{% endif %}
+		{% if show_media_preview %}
+		<div class="post_media_preview">
+			{% if post.post_type == "image" %}
+			<a href="{{ post.permalink }}">
+				<img loading="lazy" decoding="async" alt="Post image" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.url }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
+			</a>
+			{% else if post.post_type == "gallery" %}
+			<a href="{{ post.permalink }}">
+				{% let first_image = post.gallery.first().unwrap() -%}
+				<img loading="lazy" decoding="async" alt="Gallery preview" src="{% if !first_image.preview_url.is_empty() %}{{ first_image.preview_url }}{% else %}{{ first_image.url }}{% endif %}"{% if first_image.width > 0 && first_image.height > 0 %} style="aspect-ratio: {{ first_image.width }} / {{ first_image.height }}"{% endif %}/>
+				<span class="media_badge">
+					<svg class="icon" viewBox="0 0 24 24" width="12" height="12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+					{{ post.gallery.len() }} images
+				</span>
+			</a>
+			{% else %}
+			<a href="{{ post.permalink }}">
+				<img loading="lazy" decoding="async" alt="Video preview" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.poster }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
+				<span class="media_badge">
+					<svg class="icon_fill" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+					{% if post.post_type == "gif" %}gif{% else %}video{% endif %}
+				</span>
+			</a>
+			{% endif %}
+		</div>
+		{% endif %}
 		{% call poll(post) %}
 		<div class="post_footer">
-			<span class="post_score {{ post.score_tier }}" title="{{ post.score.1 }}">
+			<span class="action_pill post_score {{ post.score_tier }}" title="{{ post.score.1 }} upvotes">
+				<svg class="icon" viewBox="0 0 24 24" width="13" height="13" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
 				{% if prefs.hide_score != "on" %}
 				{{ post.score.0 }}
 				{% else %}
 				&#x2022;
 				{% endif %}
 			</span>
-			<span class="dot">&bull;</span>
-			<a href="{{ post.permalink }}" class="post_comments" title="{{ post.comments.1 }} {% if post.comments.1 == "1" %}comment{% else %}comments{% endif %}">{{ post.comments.0 }} {% if post.comments.1 == "1" %}comment{% else %}comments{% endif %}</a>
-			<span class="dot">&bull;</span>
-			<a class="post_share" href="{{ post.permalink }}">share</a>
+			<a href="{{ post.permalink }}" class="action_pill post_comments" title="{{ post.comments.1 }} {% if post.comments.1 == "1" %}comment{% else %}comments{% endif %}">
+				<svg class="icon" viewBox="0 0 24 24" width="13" height="13" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+				{{ post.comments.0 }} <span class="desktop_item">{% if post.comments.1 == "1" %}comment{% else %}comments{% endif %}</span>
+			</a>
+			<a class="action_pill post_share" href="{{ post.permalink }}">
+				<svg class="icon" viewBox="0 0 24 24" width="13" height="13" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>
+				share
+			</a>
 			{% if post.post_type == "link" %}
-			<span class="dot">&bull;</span>
 			<span class="post_domain">{{ post.domain }}</span>
 			{% endif %}
 		</div>
 	</div>
-	<div class="post_thumbnail">
+	{% if !show_media_preview %}
+	<div class="post_thumbnail{% if post.post_type == "self" %} self_thumb{% endif %}{% if post.thumbnail.url.is_empty() %} no_thumbnail{% endif %}">
 		{% if post.post_type == "self" || post.thumbnail.url.is_empty() %}
 		<a href="{{ post.permalink }}">
 			<svg viewBox="0 0 100 100" width="70" height="70" xmlns="http://www.w3.org/2000/svg">
@@ -302,6 +356,7 @@
 		</a>
 		{% endif %}
 	</div>
+	{% endif %}
 </div>
 {%- endmacro %}
 
