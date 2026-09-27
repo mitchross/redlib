@@ -39,6 +39,17 @@
 			person_profiles: 'always',
 			autocapture: false,
 			disable_session_recording: false,
+			{% if crate::analytics::ANALYTICS.sample_rate < 1.0 %}
+			// Session replay ($snapshot) is never sampled; other events keep a fixed share of visitors.
+			before_send: function(e) {
+				if (!e || e.event === '$snapshot') return e;
+				var id = String((e.properties && e.properties.distinct_id) || ''), h = 2166136261;
+				for (var i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+				if (h / 4294967295 >= {{ crate::analytics::ANALYTICS.sample_rate }}) return null;
+				e.properties.sample_rate = {{ crate::analytics::ANALYTICS.sample_rate }};
+				return e;
+			},
+			{% endif %}
 			loaded: function(ph) { ph.startSessionRecording(); }
 		});
 		</script>
