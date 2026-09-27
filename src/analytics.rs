@@ -48,6 +48,8 @@ pub struct Analytics {
 	pub host: String,
 	pub client_host: String,
 	pub api_key: String,
+	/// Share of visitors whose events are sent (0.0-1.0). Session replay is never sampled.
+	pub sample_rate: f64,
 	pub client: Client,
 }
 
@@ -62,6 +64,7 @@ impl Analytics {
 		let host = env::var("POSTHOG_HOST").unwrap_or_default();
 		let client_host = env::var("POSTHOG_CLIENT_HOST").unwrap_or_default();
 		let api_key = env::var("POSTHOG_API_KEY").unwrap_or_default();
+		let sample_rate = parse_sample_rate(env::var("POSTHOG_SAMPLE_RATE").ok().as_deref());
 		let client = Client::builder().timeout(Duration::from_millis(1500)).build().expect("analytics client");
 
 		Self {
@@ -69,6 +72,7 @@ impl Analytics {
 			host,
 			client_host,
 			api_key,
+			sample_rate,
 			client,
 		}
 	}
@@ -82,6 +86,10 @@ impl Analytics {
 		hasher.update(ip.as_bytes());
 		hasher.update(user_agent.as_bytes());
 		let distinct_id = format!("{:x}", hasher.finalize());
+
+		if !in_sample(&distinct_id, self.sample_rate) {
+			return;
+		}
 
 		let session_id = get_session_id(&distinct_id);
 
@@ -101,6 +109,7 @@ impl Analytics {
 				"$user_agent": user_agent,
 				"$referrer": referrer,
 				"$referring_domain": extract_domain(referrer),
+				"sample_rate": self.sample_rate,
 				"$lib": "redlib-server",
 				"$lib_version": env!("CARGO_PKG_VERSION")
 			}
@@ -118,6 +127,24 @@ impl Analytics {
 	}
 }
 
+/// Parse POSTHOG_SAMPLE_RATE; unset or invalid means send everything.
+fn parse_sample_rate(value: Option<&str>) -> f64 {
+	value
+		.and_then(|v| v.trim().parse::<f64>().ok())
+		.filter(|r| r.is_finite())
+		.map_or(1.0, |r| r.clamp(0.0, 1.0))
+}
+
+/// Keep a visitor when the first 8 hex digits of their id fall under the rate,
+/// so every event from one visitor is either all kept or all dropped.
+fn in_sample(distinct_id: &str, rate: f64) -> bool {
+	if rate >= 1.0 {
+		return true;
+	}
+	let bucket = distinct_id.get(..8).and_then(|h| u32::from_str_radix(h, 16).ok()).unwrap_or(0);
+	(f64::from(bucket) / f64::from(u32::MAX)) < rate
+}
+
 /// Extract domain from a referrer URL, or return empty string.
 fn extract_domain(referrer: &str) -> &str {
 	if referrer.is_empty() {
@@ -130,3 +157,34 @@ fn extract_domain(referrer: &str) -> &str {
 }
 
 pub static ANALYTICS: LazyLock<Analytics> = LazyLock::new(Analytics::from_env);
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn sample_rate_parsing() {
+		assert_eq!(parse_sample_rate(None), 1.0);
+		assert_eq!(parse_sample_rate(Some("0.1")), 0.1);
+		assert_eq!(parse_sample_rate(Some(" 0.25 ")), 0.25);
+		assert_eq!(parse_sample_rate(Some("5")), 1.0);
+		assert_eq!(parse_sample_rate(Some("-1")), 0.0);
+		assert_eq!(parse_sample_rate(Some("nan")), 1.0);
+		assert_eq!(parse_sample_rate(Some("abc")), 1.0);
+	}
+
+	#[test]
+	fn sampling_is_per_visitor() {
+		assert!(in_sample("ffffffff", 1.0));
+		assert!(!in_sample("00000000", 0.0));
+		assert!(in_sample("00000000", 0.1));
+		assert!(!in_sample("ffffffff", 0.1));
+		assert_eq!(in_sample("19999999", 0.1), in_sample("19999999", 0.1));
+	}
+
+	#[test]
+	fn sampling_keeps_about_the_rate() {
+		let kept = (0..10_000u32).filter(|i| in_sample(&format!("{:x}", Sha256::digest(i.to_le_bytes())), 0.1)).count();
+		assert!((800..1200).contains(&kept), "kept {kept}");
+	}
+}
