@@ -655,7 +655,7 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 
 // Set enclosure image for RSS feed item
 fn apply_enclosure(item: &mut Item, post: &Post) {
-	item.set_enclosure(get_rss_image(&post));
+	item.set_enclosure(get_rss_image(post));
 
 	// Embed the number of gallery images in description and content since
 	// only the first image in the gallery is used for the enclosure
@@ -672,7 +672,7 @@ fn apply_enclosure(item: &mut Item, post: &Post) {
 fn get_rss_image(post: &Post) -> Option<Enclosure> {
 	let image_url = match post.post_type.as_str() {
 		"image" => Some(post.media.url.clone()),
-		"gallery" => post.gallery.get(0).and_then(|media| decode_html(&media.url).ok()),
+		"gallery" => post.gallery.first().and_then(|media| decode_html(&media.url).ok()),
 		"gif" | "video" => decode_html(&post.media.poster).ok(),
 		_ => None,
 	};
