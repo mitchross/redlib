@@ -50,21 +50,22 @@ pub struct Analytics {
 	pub api_key: String,
 	/// Share of visitors whose events are sent (0.0-1.0). Session replay is never sampled.
 	pub sample_rate: f64,
+	/// Share of visitors whose sessions are recorded (0.0-1.0), independent of `sample_rate`.
+	pub replay_sample_rate: f64,
+	/// Also send a server-side `$pageview` per request; duplicates the browser's own pageview.
+	pub server_pageviews: bool,
 	pub client: Client,
 }
 
 impl Analytics {
 	pub fn from_env() -> Self {
-		let enabled = env::var("POSTHOG_ENABLED")
-			.map(|v| {
-				let val = v.to_ascii_lowercase();
-				val == "1" || val == "true" || val == "yes" || val == "on"
-			})
-			.unwrap_or(false);
+		let enabled = parse_flag(env::var("POSTHOG_ENABLED").ok().as_deref(), false);
 		let host = env::var("POSTHOG_HOST").unwrap_or_default();
 		let client_host = env::var("POSTHOG_CLIENT_HOST").unwrap_or_default();
 		let api_key = env::var("POSTHOG_API_KEY").unwrap_or_default();
 		let sample_rate = parse_sample_rate(env::var("POSTHOG_SAMPLE_RATE").ok().as_deref());
+		let replay_sample_rate = parse_sample_rate(env::var("POSTHOG_REPLAY_SAMPLE_RATE").ok().as_deref());
+		let server_pageviews = parse_flag(env::var("POSTHOG_SERVER_PAGEVIEWS").ok().as_deref(), true);
 		let client = Client::builder().timeout(Duration::from_millis(1500)).build().expect("analytics client");
 
 		Self {
@@ -73,12 +74,14 @@ impl Analytics {
 			client_host,
 			api_key,
 			sample_rate,
+			replay_sample_rate,
+			server_pageviews,
 			client,
 		}
 	}
 
 	pub async fn capture_pageview(&self, path: &str, user_agent: &str, ip: &str, host: &str, referrer: &str) {
-		if !self.enabled || self.api_key.is_empty() || self.host.is_empty() {
+		if !self.enabled || !self.server_pageviews || self.api_key.is_empty() || self.host.is_empty() {
 			return;
 		}
 
@@ -127,7 +130,16 @@ impl Analytics {
 	}
 }
 
-/// Parse POSTHOG_SAMPLE_RATE; unset or invalid means send everything.
+/// Parse an on/off env var; unset or unrecognised keeps the default.
+fn parse_flag(value: Option<&str>, default: bool) -> bool {
+	match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+		Some("1" | "true" | "yes" | "on") => true,
+		Some("0" | "false" | "no" | "off") => false,
+		_ => default,
+	}
+}
+
+/// Parse a 0.0-1.0 sample rate; unset or invalid means send everything.
 fn parse_sample_rate(value: Option<&str>) -> f64 {
 	value
 		.and_then(|v| v.trim().parse::<f64>().ok())
@@ -171,6 +183,16 @@ mod tests {
 		assert_eq!(parse_sample_rate(Some("-1")), 0.0);
 		assert_eq!(parse_sample_rate(Some("nan")), 1.0);
 		assert_eq!(parse_sample_rate(Some("abc")), 1.0);
+	}
+
+	#[test]
+	fn flag_parsing() {
+		assert!(parse_flag(None, true));
+		assert!(!parse_flag(None, false));
+		assert!(!parse_flag(Some("off"), true));
+		assert!(!parse_flag(Some(" FALSE "), true));
+		assert!(parse_flag(Some("on"), false));
+		assert!(parse_flag(Some("maybe"), true));
 	}
 
 	#[test]
