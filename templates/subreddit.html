@@ -24,22 +24,40 @@
 		{% if !is_filtered %}
 		<div id="column_one">
 			<form id="sort">
-				<div id="sort_options">
-					{% if sub.name.is_empty() %}
-						{% call utils::sort("", ["hot", "new", "top", "rising", "controversial"], sort.0, self.home_feed_query()) %}
-					{% else %}
-						{% call utils::sort(["/r/", sub.name.as_str()].concat(), ["hot", "new", "top", "rising", "controversial"], sort.0, "") %}
-					{% endif %}
-				</div>
-				<div id="view_options" aria-label="Post layout">
-					{% if prefs.layout == "gallery" %}
+				<details class="dropdown" id="sort_options">
+					<summary class="dropdown_button" aria-label="Sort posts">
+						{{ sort.0.get(0..1).unwrap_or_default().to_uppercase() }}{{ sort.0.get(1..).unwrap_or_default() }}
+						<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 7.5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+					</summary>
+					<div class="dropdown_menu">
+						<span class="dropdown_title">Sort by</span>
+						{% if sub.name.is_empty() %}
+							{% call utils::sort("", ["hot", "new", "top", "rising", "controversial"], sort.0, self.home_feed_query()) %}
+						{% else %}
+							{% call utils::sort(["/r/", sub.name.as_str()].concat(), ["hot", "new", "top", "rising", "controversial"], sort.0, "") %}
+						{% endif %}
+					</div>
+				</details>
+				<details class="dropdown" id="view_options">
+					<summary class="dropdown_button" aria-label="Post layout">
+						{% if prefs.layout == "gallery" %}
+						<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 3h6v6H3zm8 0h6v6h-6zM3 11h6v6H3zm8 0h6v6h-6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+						{% else %}
+						<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 3.5h14v6H3zm0 9h14v4H3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+						{% endif %}
+						<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 7.5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+					</summary>
+					<div class="dropdown_menu">
+						<span class="dropdown_title">View</span>
+						{% if prefs.layout == "gallery" %}
 						<a href="/settings/update?layout=card&redirect={{ redirect_url }}">List</a>
 						<a class="selected" href="{{ url }}">Gallery</a>
-					{% else %}
+						{% else %}
 						<a class="selected" href="{{ url }}">List</a>
 						<a href="/settings/update?layout=gallery&redirect={{ redirect_url }}">Gallery</a>
-					{% endif %}
-				</div>
+						{% endif %}
+					</div>
+				</details>
 				{% if home_feed %}<input type="hidden" name="feed" value="home">{% endif %}
 				{% if sort.0 == "top" || sort.0 == "controversial" %}<select id="timeframe" name="t" title="Timeframe">
 					{% call utils::options(sort.1, ["hour", "day", "week", "month", "year", "all"], "day") %}
@@ -97,18 +115,21 @@
 		</div>
 		{% endif %}
 		{% set is_feed_page = sub.name.is_empty() || sub.name == "all" || sub.name == "popular" || sub.name.contains("+") -%}
-		{% if is_filtered || (!is_feed_page && prefs.hide_sidebar_and_summary != "on") || (is_feed_page && prefs.subscriptions.len() > 0 && prefs.hide_sidebar_and_summary != "on") %}
+		{% if is_filtered || prefs.hide_sidebar_and_summary != "on" %}
 		<aside>
 			{% if is_filtered %}
 				<center>(Content from r/{{ sub.name }} has been filtered)</center>
 			{% endif %}
-			{% if is_feed_page && prefs.subscriptions.len() > 0 %}
-			<div id="feed_communities">
-				<p class="panel_label">Your communities</p>
-				{% for community in prefs.subscriptions %}
-				<a href="/r/{{ community }}">r/{{ community }}</a>
-				{% endfor %}
-			</div>
+			{% if is_feed_page %}
+			{# Filled by recentPosts.js from this browser's localStorage; stays hidden when empty. #}
+			<section class="recent_posts" id="recent_posts" hidden>
+				<div class="recent_header">
+					<h2>Recent posts</h2>
+					<button type="button" id="recent_clear">Clear</button>
+				</div>
+				<ol id="recent_list"></ol>
+			</section>
+			<script src="/recentPosts.js?v={{ env!("REDLIB_BUILD_STAMP") }}" defer></script>
 			{% endif %}
 			{% if !sub.name.is_empty() && sub.name != "all" && sub.name != "popular" && !sub.name.contains("+") %}
 			<details class="panel" id="subreddit" open>

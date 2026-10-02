@@ -29,11 +29,11 @@
 :root {
     /* Layout dimensions */
     --header-height: 56px;
-    --feed-width: 780px;
+    --feed-width: 756px;
     --detail-width: 950px;
     --gallery-max-width: 1400px;
-    --sidebar-width: 320px;
-    --sidenav-width: 220px;
+    --sidebar-width: 316px;
+    --sidenav-width: 272px;
     --footer-height: 30px;
 
     /* Radii */
@@ -97,6 +97,12 @@ body {
     --surface: var(--post);
     --surface-alt: var(--outside);
     --surface-hover: var(--highlighted);
+    /* Reddit-style neutrals: tints of the theme's own text color, so every
+       theme gets grey pills, hover rows and hairlines that suit it. */
+    --tint-hover: color-mix(in srgb, var(--text) 5%, transparent);
+    --tint-pill: color-mix(in srgb, var(--text) 10%, transparent);
+    --tint-pill-hover: color-mix(in srgb, var(--text) 17%, transparent);
+    --hairline: color-mix(in srgb, var(--text) 13%, transparent);
     --text-muted: var(--visited);
     --upvote: var(--accent);
     --focus-ring: 2px solid var(--accent);
@@ -356,13 +362,15 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
         flex-direction: column;
         gap: 2px;
         position: fixed;
-        top: calc(var(--header-height) + var(--space-3));
-        left: var(--space-3);
+        top: var(--header-height);
+        bottom: var(--footer-height);
+        left: 0;
         width: var(--sidenav-width);
-        max-height: calc(100vh - var(--header-height) - var(--footer-height) - 2 * var(--space-3));
         overflow-y: auto;
-        padding: var(--space-2);
+        padding: 16px;
         box-sizing: border-box;
+        border-right: 1px solid var(--hairline);
+        background: var(--background);
         z-index: 1;
     }
 
@@ -370,9 +378,13 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
         /* The rail is a fixed-height scrolling column; without this, a long
            subscription list squeezes every row shorter than its text. */
         flex-shrink: 0;
-        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 40px;
+        padding: 0 16px;
         border-radius: var(--radius-m);
-        font-size: var(--font-m);
+        font-size: 14px;
         color: var(--text);
         overflow: hidden;
         text-overflow: ellipsis;
@@ -380,15 +392,84 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
         transition: background 150ms var(--ease-out-quart);
     }
 
+    #sidenav a > span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     #sidenav a:hover {
-        background: var(--surface-hover);
+        background: var(--tint-hover);
         text-decoration: none;
     }
 
     #sidenav a.selected {
-        background: var(--surface-hover);
+        background: var(--tint-pill);
+    }
+
+    #sidenav .nav_icon {
+        flex-shrink: 0;
+    }
+
+    #sidenav hr {
+        flex-shrink: 0;
+        width: calc(100% - 32px);
+        margin: 12px 16px;
+        border: 0;
+        border-top: 1px solid var(--hairline);
+    }
+
+    /* Collapsible sections (Communities, Redlib) */
+    .nav_section {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
+    .nav_section > summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 40px;
+        padding: 0 16px;
+        border-radius: var(--radius-m);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .nav_section > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .nav_section > summary:hover {
+        background: var(--tint-hover);
+    }
+
+    .nav_chevron {
+        transition: transform 150ms var(--ease-out-quart);
+    }
+
+    .nav_section:not([open]) .nav_chevron {
+        transform: rotate(-90deg);
+    }
+
+    .nav_avatar {
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        margin-left: -6px;
+        border-radius: 50%;
+        background: hsl(var(--hue, 15) 55% 42%);
+        color: #fff;
+        font-size: 13px;
         font-weight: 700;
-        color: var(--accent);
     }
 
     .sidenav_label {
@@ -404,12 +485,12 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
     /* Slightly wider content when the rail is visible; the feed stays
        centered in the space right of the rail, like Reddit */
     :root {
-        --feed-width: 850px;
+        --feed-width: 756px;
         --detail-width: 1000px;
     }
 
     main {
-        margin-left: calc(var(--sidenav-width) + 2 * var(--space-3));
+        margin-left: var(--sidenav-width);
     }
 
     /* The rail supersedes the header Feeds dropdown */
@@ -489,6 +570,18 @@ main > * > footer > a:hover {
     display: none;
 }
 
+/* List feed: Reddit-style hairline between posts */
+#posts:not(.post-gallery) > .sep {
+    display: block;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    margin: 4px 0;
+}
+
+#posts:not(.post-gallery) > .sep:first-child {
+    display: none;
+}
+
 /* ==========================================================================
    5. Header / navigation
    ========================================================================== */
@@ -501,9 +594,8 @@ nav:not([id]) {
     gap: var(--space-3);
 
     color: var(--accent);
-    background: var(--surface-alt);
-    box-shadow: var(--shadow);
-    border-bottom: var(--panel-border);
+    background: var(--background);
+    border-bottom: 1px solid var(--hairline);
 
     font-size: 20px;
 
@@ -512,7 +604,7 @@ nav:not([id]) {
     top: 0;
     box-sizing: border-box;
     padding: 0 var(--space-4);
-    margin-bottom: var(--space-3);
+    margin-bottom: 0;
     min-height: var(--header-height);
     width: 100%;
 }
@@ -548,7 +640,18 @@ nav #links {
 }
 
 nav #links svg {
-    display: none;
+    width: 20px;
+    height: 20px;
+}
+
+/* Icon-only buttons; the text stays for screen readers */
+nav #links a > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 nav #redlib {
@@ -564,17 +667,17 @@ nav #lib {
 }
 
 nav #links a {
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    text-transform: lowercase;
-    padding: 6px 10px;
-    border-radius: var(--radius-pill);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     transition: background 150ms var(--ease-out-quart);
 }
 
 nav #links a:hover {
-    background: var(--surface-hover);
+    background: var(--tint-pill);
     text-decoration: none;
 }
 
@@ -602,13 +705,15 @@ nav #links a:hover {
     grid-area: searchbox;
     display: flex;
     align-items: stretch;
+    height: 40px;
+    box-sizing: border-box;
     border-radius: var(--radius-pill);
-    border: var(--panel-border);
-    background: var(--surface-hover);
+    border: 0;
+    background: var(--tint-pill);
     overflow: hidden;
     margin-bottom: 0;
     flex-grow: 2;
-    max-width: 620px;
+    max-width: 560px;
 }
 
 #searchbox:focus-within {
@@ -791,8 +896,6 @@ button.submit:hover > svg {
    7. Controls: sort, view switch, timeframe
    ========================================================================== */
 
-#sort_options,
-#view_options,
 #listing_options {
     border-radius: var(--radius-pill);
     align-items: center;
@@ -806,8 +909,6 @@ button.submit:hover > svg {
     scrollbar-width: none;
 }
 
-#sort_options > a,
-#view_options > a,
 #listing_options > a {
     color: var(--text);
     padding: 7px 14px;
@@ -823,16 +924,12 @@ button.submit:hover > svg {
     letter-spacing: 0.02em;
 }
 
-#sort_options > a.selected,
-#view_options > a.selected,
 #listing_options > a.selected {
     background: var(--accent);
     color: var(--foreground);
     font-weight: 700;
 }
 
-#sort_options > a:not(.selected):hover,
-#view_options > a:not(.selected):hover,
 #listing_options > a:not(.selected):hover {
     background: var(--surface-hover);
     text-decoration: none;
@@ -843,6 +940,165 @@ button.submit:hover > svg {
     border-radius: var(--radius-s);
     border: var(--panel-border);
     background: var(--surface-alt);
+}
+
+/* Feed sort and view menus: small text buttons that open a menu, like Reddit's */
+#sort:has(> .dropdown) {
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.dropdown {
+    position: relative;
+}
+
+.dropdown_button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: var(--radius-pill);
+    font-size: var(--font-s);
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.dropdown_button::-webkit-details-marker {
+    display: none;
+}
+
+.dropdown_button:hover,
+.dropdown[open] > .dropdown_button {
+    background: var(--tint-pill);
+    color: var(--text);
+}
+
+.dropdown_menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 160px;
+    padding: 8px 0;
+    background: var(--outside);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-m);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.dropdown_title {
+    padding: 6px 16px;
+    font-size: var(--font-s);
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.dropdown_menu > a {
+    padding: 10px 16px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.dropdown_menu > a:hover {
+    background: var(--tint-hover);
+    text-decoration: none;
+}
+
+.dropdown_menu > a.selected {
+    background: var(--tint-pill);
+}
+
+/* Right rail: "Recent posts" card (from this browser's localStorage) */
+.recent_posts {
+    background: var(--outside);
+    border-radius: 16px;
+    padding: 12px 16px 8px;
+}
+
+.recent_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.recent_header h2 {
+    margin: 0;
+    font-size: var(--font-s);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+#recent_clear {
+    background: none;
+    border: 0;
+    padding: 4px 0;
+    font-size: var(--font-s);
+    color: #648efc;
+    cursor: pointer;
+}
+
+#recent_list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+#recent_list li {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--hairline);
+}
+
+#recent_list li:last-child {
+    border-bottom: 0;
+}
+
+.recent_text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+}
+
+.recent_sub {
+    font-size: var(--font-s);
+    color: var(--text-muted);
+}
+
+.recent_title {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.recent_meta {
+    font-size: var(--font-s);
+    color: var(--text-muted);
+}
+
+.recent_thumb {
+    flex-shrink: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-m);
+    object-fit: cover;
 }
 
 #sort #sort_submit {
@@ -870,18 +1126,23 @@ button.submit:hover > svg {
 .post:not(.highlighted) {
     display: flex;
     gap: var(--post-gap, 12px);
-    padding: var(--post-padding, 12px 16px);
+    padding: var(--post-padding, 4px 16px 8px);
     align-items: flex-start;
-    background: var(--surface);
-    border: var(--panel-border);
-    border-radius: var(--radius-m);
-    margin-bottom: var(--space-2);
-    transition: background 150ms var(--ease-out-quart),
-                border-color 150ms var(--ease-out-quart);
+    background: transparent;
+    border: 0;
+    border-radius: 16px;
+    margin: 0;
+    transition: background 150ms var(--ease-out-quart);
 }
 
 .post:not(.highlighted):hover {
-    background: var(--surface-hover);
+    background: var(--tint-hover);
+}
+
+/* Skip rendering (and the blurred backdrops) for posts that are off-screen */
+#posts:not(.post-gallery) > .post {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 480px;
 }
 
 .post:not(.highlighted) .post_content {
@@ -900,19 +1161,48 @@ button.submit:hover > svg {
     font-size: var(--font-s);
     color: var(--text-muted);
     letter-spacing: 0.01em;
-    display: block;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 32px;
 }
 
 .post_subreddit {
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Subreddit icon, or a colored letter when the subreddit has none */
+.post_avatar {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+
+.post_avatar img,
+.post_avatar span {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.post_avatar span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: hsl(var(--hue, 15) 55% 42%);
+    color: #fff;
+    font-size: 12px;
     font-weight: 700;
-    color: var(--accent);
 }
 
 .post_title {
     grid-area: post_title;
-    font-size: var(--font-title);
+    font-size: 18px;
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.3;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
     margin: 0;
@@ -974,21 +1264,34 @@ button.submit:hover > svg {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: var(--surface-hover);
+    height: 32px;
+    box-sizing: border-box;
+    background: var(--tint-pill);
     border-radius: var(--radius-pill);
-    padding: 5px 12px;
+    padding: 0 12px;
     font-size: var(--font-s);
     font-weight: 600;
     color: var(--text);
-    line-height: 1.2;
-    transition: background 150ms var(--ease-out-quart),
-                color 150ms var(--ease-out-quart);
+    line-height: 1;
+    transition: background 150ms var(--ease-out-quart);
 }
 
 a.action_pill:hover {
-    background: var(--accent);
-    color: var(--foreground);
+    background: var(--tint-pill-hover);
+    color: var(--text);
     text-decoration: none;
+}
+
+/* Up arrow, score, down arrow in one pill, like Reddit's vote control */
+.vote_pill {
+    gap: 4px;
+    padding: 0 8px;
+}
+
+.post_score .vote_arrow {
+    flex-shrink: 0;
+    color: var(--text);
+    opacity: 0.85;
 }
 
 .post_score {
@@ -1020,7 +1323,7 @@ a.action_pill:hover {
     opacity: 1;
 }
 .post:not(.highlighted) .post_score.score_hot {
-    color: var(--accent);
+    color: var(--text);
 }
 
 .post_comments {
@@ -1228,13 +1531,14 @@ body.compact .post:not(.highlighted) .post_thumbnail.self_thumb {
 /* Large in-feed media preview (card + gallery layouts) */
 .post_media_preview {
     position: relative;
-    border-radius: var(--radius-m);
+    border-radius: 16px;
     overflow: hidden;
-    background: var(--background);
-    margin-top: 2px;
+    background: #000;
+    border: 1px solid var(--hairline);
+    margin-top: 4px;
     display: flex;
     justify-content: center;
-    align-self: center;
+    align-self: stretch;
     max-width: 100%;
 }
 
@@ -1243,11 +1547,22 @@ body.compact .post:not(.highlighted) .post_thumbnail.self_thumb {
     justify-content: center;
     width: 100%;
     position: relative;
+    isolation: isolate;
+}
+
+/* Fill the letterbox with a blurred, darkened copy of the image */
+.post_media_preview a::before {
+    content: "";
+    position: absolute;
+    inset: -24px;
+    z-index: -1;
+    background: var(--media-bg, none) center / cover no-repeat;
+    filter: blur(24px) brightness(0.45);
 }
 
 .post_media_preview img {
     max-width: 100%;
-    max-height: 500px;
+    max-height: 540px;
     width: auto;
     height: auto;
     display: block;
@@ -1535,6 +1850,8 @@ body.compact .post:not(.highlighted) .post_thumbnail.self_thumb {
     min-width: 0;
     overflow: hidden;
     border-radius: var(--radius-m);
+    background: var(--surface);
+    border: var(--panel-border);
 }
 
 #posts.post-gallery .post:not(.highlighted) .post_content {

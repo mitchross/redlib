@@ -59,21 +59,48 @@
 
 {% macro side_nav(current) -%}
 <nav id="sidenav" aria-label="Main navigation">
-	<p class="sidenav_label">Feeds</p>
-	<a href="/?feed=home"{% if current == "" %} class="selected" aria-current="page"{% endif %}>Home</a>
+	<a class="nav_item{% if current == "" %} selected{% endif %}" href="/?feed=home"{% if current == "" %} aria-current="page"{% endif %}>
+		<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 9.2 10 3l7 6.2V17h-4.5v-5h-5v5H3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+		<span>Home</span>
+	</a>
 	{% if prefs.remove_default_feeds != "on" %}
-		<a href="/r/popular"{% if current == "popular" %} class="selected" aria-current="page"{% endif %}>Popular</a>
-		<a href="/r/all"{% if current == "all" %} class="selected" aria-current="page"{% endif %}>All</a>
+	<a class="nav_item{% if current == "popular" %} selected{% endif %}" href="/r/popular"{% if current == "popular" %} aria-current="page"{% endif %}>
+		<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m6.5 12.5 3-3 2 2 3-3.5m-2.7 0h2.7v2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+		<span>Popular</span>
+	</a>
+	<a class="nav_item{% if current == "all" %} selected{% endif %}" href="/r/all"{% if current == "all" %} aria-current="page"{% endif %}>
+		<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M4 16V9m4 7V4m4 12v-5m4 5V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+		<span>All</span>
+	</a>
 	{% endif %}
 	{% if prefs.subscriptions.len() > 0 %}
-		<p class="sidenav_label">Subscriptions</p>
+	<hr>
+	<details class="nav_section" open>
+		<summary>Communities<svg class="nav_chevron" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 7.5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+		<a class="nav_item" href="/settings#settings_subs">
+			<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v2m0 11v2m7.5-7.5h-2m-11 0h-2m12.8-5.3-1.4 1.4M5.1 14.9l-1.4 1.4m12.6 0-1.4-1.4M5.1 5.1 3.7 3.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+			<span>Manage communities</span>
+		</a>
 		{% for sub in prefs.subscriptions %}
-			<a href="/r/{{ sub }}"{% if sub == current %} class="selected" aria-current="page"{% endif %}>{{ sub }}</a>
+		<a class="nav_item{% if sub == current %} selected{% endif %}" href="/r/{{ sub }}"{% if sub == current %} aria-current="page"{% endif %}>
+			<span class="nav_avatar" style="--hue: {{ crate::utils::avatar_hue(sub) }}" aria-hidden="true">{{ sub.get(0..1).unwrap_or_default().to_uppercase() }}</span>
+			<span>r/{{ sub }}</span>
+		</a>
 		{% endfor %}
+	</details>
 	{% endif %}
-	<p class="sidenav_label">Redlib</p>
-	<a href="/settings">Settings</a>
-	<a href="/info">Instance info</a>
+	<hr>
+	<details class="nav_section" open>
+		<summary>Redlib<svg class="nav_chevron" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 7.5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+		<a class="nav_item" href="/settings">
+			<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3.5 6h13M3.5 10h13M3.5 14h13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+			<span>Settings</span>
+		</a>
+		<a class="nav_item" href="/info">
+			<svg class="nav_icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5m0-7.5v.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+			<span>Instance info</span>
+		</a>
+	</details>
 </nav>
 {%- endmacro %}
 
@@ -251,6 +278,13 @@
 			{% else -%}
 				{% let community = format!("r/{}", post.community) -%}
 			{% endif -%}
+			<a class="post_avatar" href="/{{ community }}" tabindex="-1" aria-hidden="true">
+				{%- if !post.community_icon.is_empty() -%}
+				<img src="{{ post.community_icon }}" alt="" width="24" height="24" loading="lazy" decoding="async">
+				{%- else -%}
+				<span style="--hue: {{ crate::utils::avatar_hue(post.community) }}">{{ post.community.get(0..1).unwrap_or_default().to_uppercase() }}</span>
+				{%- endif -%}
+			</a>
 			<a class="post_subreddit" href="/{{ community }}">{{ community }}</a>
 			<span class="dot">&bull;</span>
 			<span class="created" title="{{ post.created }}">{{ post.rel_time }}</span>
@@ -283,12 +317,12 @@
 		{% if show_media_preview %}
 		<div class="post_media_preview">
 			{% if post.post_type == "image" %}
-			<a href="{{ post.permalink }}">
+			<a href="{{ post.permalink }}" style="--media-bg: url('{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.url }}{% endif %}')">
 				<img loading="lazy" decoding="async" alt="Post image" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.url }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
 			</a>
 			{% else if post.post_type == "gallery" %}
 			{% if let Some(first_image) = post.gallery.first() %}
-			<a href="{{ post.permalink }}">
+			<a href="{{ post.permalink }}" style="--media-bg: url('{% if !first_image.preview_url.is_empty() %}{{ first_image.preview_url }}{% else %}{{ first_image.url }}{% endif %}')">
 				<img loading="lazy" decoding="async" alt="Gallery preview" src="{% if !first_image.preview_url.is_empty() %}{{ first_image.preview_url }}{% else %}{{ first_image.url }}{% endif %}"{% if first_image.width > 0 && first_image.height > 0 %} style="aspect-ratio: {{ first_image.width }} / {{ first_image.height }}"{% endif %}/>
 				<span class="media_badge">
 					<svg class="icon" viewBox="0 0 24 24" width="12" height="12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -297,7 +331,7 @@
 			</a>
 			{% endif %}
 			{% else %}
-			<a href="{{ post.permalink }}">
+			<a href="{{ post.permalink }}" style="--media-bg: url('{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.poster }}{% endif %}')">
 				<img loading="lazy" decoding="async" alt="Video preview" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.poster }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
 				<span class="media_badge">
 					<svg class="icon_fill" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -309,13 +343,10 @@
 		{% endif %}
 		{% call poll(post) %}
 		<div class="post_footer">
-			<span class="action_pill post_score {{ post.score_tier }}" title="{{ post.score.1 }} upvotes">
-				<svg class="icon" viewBox="0 0 24 24" width="13" height="13" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
-				{% if prefs.hide_score != "on" %}
-				{{ post.score.0 }}
-				{% else %}
-				&#x2022;
-				{% endif %}
+			<span class="action_pill post_score vote_pill {{ post.score_tier }}" title="{{ post.score.1 }} upvotes">
+				<svg class="vote_arrow" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 2.5 2.75 10.4h4.5v7.1h5.5v-7.1h4.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+				<span class="vote_count">{% if prefs.hide_score != "on" %}{{ post.score.0 }}{% else %}&#x2022;{% endif %}</span>
+				<svg class="vote_arrow down" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 17.5 2.75 9.6h4.5V2.5h5.5v7.1h4.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
 			</span>
 			<a href="{{ post.permalink }}" class="action_pill post_comments" title="{{ post.comments.1 }} {% if post.comments.1 == "1" %}comment{% else %}comments{% endif %}">
 				<svg class="icon" viewBox="0 0 24 24" width="13" height="13" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
