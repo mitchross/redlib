@@ -39,12 +39,12 @@ pub static OAUTH_RATELIMIT_REMAINING: AtomicU16 = AtomicU16::new(99);
 
 pub static OAUTH_IS_ROLLING_OVER: AtomicBool = AtomicBool::new(false);
 
-/// Unix seconds of the last token refresh triggered by a Reddit response
-/// (blocked 403, 401, empty body, or a low rate limit).
+/// Unix seconds of the last token refresh triggered by a blocked (403) or
+/// unauthorized (401) response.
 static LAST_TRIGGERED_REFRESH: AtomicU64 = AtomicU64::new(0);
 
-/// Minimum gap between response-triggered refreshes, so a lasting block or rate
-/// limit can't hammer the token endpoint.
+/// Minimum gap between 401/403-triggered refreshes, so a lasting block can't
+/// hammer the token endpoint. Rate-limit rollovers deliberately skip this.
 const TRIGGERED_REFRESH_COOLDOWN_SECS: u64 = 60;
 
 const URL_PAIRS: [(&str, &str); 2] = [
@@ -316,7 +316,12 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);
-	if current_rate_limit < 10 && !is_rolling_over && refresh_due(&format!("Rate limit {current_rate_limit} is low")) {
+	// No cooldown: switching to a fresh token is how redlib stays under Reddit's
+	// per-token rate limit, and under load that is needed more than once a minute
+	// (a cooldown here caused 2.2.7's rate-limit outage). force_refresh_token
+	// already lets only one refresh run at a time.
+	if current_rate_limit < 10 && !is_rolling_over {
+		warn!("Rate limit {current_rate_limit} is low; rolling over to a new token");
 		tokio::spawn(force_refresh_token());
 	}
 	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
@@ -360,10 +365,9 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			match response.bytes().await {
 				Ok(body) => {
 					if body.is_empty() {
-						// Rate limited, so refresh the token (at most once per cooldown)
-						if refresh_due("Reddit returned an empty body") {
-							tokio::spawn(force_refresh_token());
-						}
+						// Rate limited: roll over to a fresh token right away (see the
+						// low-rate-limit check above for why there's no cooldown).
+						tokio::spawn(force_refresh_token());
 						return match reset {
 							Some(val) => Err(format!(
 								"Reddit rate limit exceeded. Try refreshing in a few seconds.\
@@ -419,6 +423,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
+							// 429: this token's rate limit is spent, so roll over to a fresh one now.
+							if status.as_u16() == 429 {
+								tokio::spawn(force_refresh_token());
+							}
 							// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
 							if status.as_u16() == 403 && refresh_due("Reddit returned a non-JSON 403") {
 								tokio::spawn(force_refresh_token());
