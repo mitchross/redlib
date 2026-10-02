@@ -6,9 +6,9 @@
 	{% endfor %}
 {%- endmacro %}
 
-{% macro sort(root, methods, selected) -%}
+{% macro sort(root, methods, selected, query) -%}
 	{% for method in methods %}
-		<a {% if method.to_string() == selected.to_string() %}class="selected"{% endif %} href="{{ root }}/{{ method }}">
+		<a {% if method.to_string() == selected.to_string() %}class="selected"{% endif %} href="{{ root }}/{{ method }}{{ query }}">
 			{{ format!("{}{}", method.get(0..1).unwrap_or_default().to_uppercase(), method.get(1..).unwrap_or_default()) }}
 		</a>
 	{% endfor %}
@@ -42,7 +42,7 @@
 		<summary>Feeds</summary>
 		<div id="feed_list">
 			<p>MAIN FEEDS</p>
-			<a href="/">Home</a>
+			<a href="/?feed=home">Home</a>
 			{% if prefs.remove_default_feeds != "on" %}
 				<a href="/r/popular">Popular</a>
 				<a href="/r/all">All</a>
@@ -60,7 +60,7 @@
 {% macro side_nav(current) -%}
 <nav id="sidenav" aria-label="Main navigation">
 	<p class="sidenav_label">Feeds</p>
-	<a href="/"{% if current == "" %} class="selected" aria-current="page"{% endif %}>Home</a>
+	<a href="/?feed=home"{% if current == "" %} class="selected" aria-current="page"{% endif %}>Home</a>
 	{% if prefs.remove_default_feeds != "on" %}
 		<a href="/r/popular"{% if current == "popular" %} class="selected" aria-current="page"{% endif %}>Popular</a>
 		<a href="/r/all"{% if current == "all" %} class="selected" aria-current="page"{% endif %}>All</a>

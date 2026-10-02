@@ -36,6 +36,28 @@ struct SubredditTemplate {
 	/// Whether all posts were hidden because they are NSFW (and user has disabled show NSFW)
 	all_posts_hidden_nsfw: bool,
 	no_posts: bool,
+	/// Showing the subscription feed via `?feed=home`, so links must keep that query.
+	home_feed: bool,
+}
+
+impl SubredditTemplate {
+	/// Query for sort links on the home feed, so `/new` stays on the subscription feed.
+	const fn home_feed_query(&self) -> &'static str {
+		if self.home_feed {
+			"?feed=home"
+		} else {
+			""
+		}
+	}
+
+	/// Extra parameter for pagination links on the home feed.
+	const fn home_feed_param(&self) -> &'static str {
+		if self.home_feed {
+			"&feed=home"
+		} else {
+			""
+		}
+	}
 }
 
 #[derive(Template)]
@@ -71,7 +93,15 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	let post_sort = req.cookie("post_sort").map_or_else(|| "hot".to_string(), |c| c.value().to_string());
 	let sort = req.param("sort").unwrap_or_else(|| req.param("id").unwrap_or(post_sort));
 
-	let sub_name = req.param("sub").unwrap_or(if front_page == "default" || front_page.is_empty() {
+	// The sidebar's Home link (and Reddit's own `/?feed=home`) always means the
+	// subscription feed. `front_page` only decides what bare `/` shows, and it is
+	// often an instance default like "popular" that saving settings copies into
+	// the cookie, which used to turn Home into Popular.
+	let wants_home = req.param("sub").is_none() && query.split('&').any(|pair| pair == "feed=home");
+
+	let sub_name = req.param("sub").unwrap_or(if wants_home && !subscribed.is_empty() {
+		subscribed.clone()
+	} else if front_page == "default" || front_page.is_empty() {
 		if subscribed.is_empty() {
 			"popular".to_string()
 		} else {
@@ -149,6 +179,7 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	let url = String::from(req.uri().path_and_query().map_or("", |val| val.as_str()));
 	let redirect_url = url[1..].replace('?', "%3F").replace('&', "%26").replace('+', "%2B");
 	let filters = get_filters(&req);
+	let home_feed = wants_home && sub_name == subscribed;
 
 	// If all requested subs are filtered, we don't need to fetch posts.
 	if sub_name.split('+').all(|s| filters.contains(s)) {
@@ -164,6 +195,7 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 			all_posts_filtered: false,
 			all_posts_hidden_nsfw: false,
 			no_posts: false,
+			home_feed,
 		}))
 	} else {
 		match Post::fetch(&path, quarantined).await {
@@ -187,6 +219,7 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 					all_posts_filtered,
 					all_posts_hidden_nsfw,
 					no_posts,
+					home_feed,
 				}))
 			}
 			Err(msg) => match msg.as_str() {

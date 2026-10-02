@@ -9,7 +9,7 @@ body %}
         <form id="sort">
             <div id="listing_options">
                 {% call utils::sort(["/user/", user.name.as_str()].concat(),
-                ["overview", "comments", "submitted"], listing) %}
+                ["overview", "comments", "submitted"], listing, "") %}
             </div>
             <div id="view_options" aria-label="Post layout">
                 {% if prefs.layout == "gallery" %}

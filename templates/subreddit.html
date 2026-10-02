@@ -26,9 +26,9 @@
 			<form id="sort">
 				<div id="sort_options">
 					{% if sub.name.is_empty() %}
-						{% call utils::sort("", ["hot", "new", "top", "rising", "controversial"], sort.0) %}
+						{% call utils::sort("", ["hot", "new", "top", "rising", "controversial"], sort.0, self.home_feed_query()) %}
 					{% else %}
-						{% call utils::sort(["/r/", sub.name.as_str()].concat(), ["hot", "new", "top", "rising", "controversial"], sort.0) %}
+						{% call utils::sort(["/r/", sub.name.as_str()].concat(), ["hot", "new", "top", "rising", "controversial"], sort.0, "") %}
 					{% endif %}
 				</div>
 				<div id="view_options" aria-label="Post layout">
@@ -40,6 +40,7 @@
 						<a href="/settings/update?layout=gallery&redirect={{ redirect_url }}">Gallery</a>
 					{% endif %}
 				</div>
+				{% if home_feed %}<input type="hidden" name="feed" value="home">{% endif %}
 				{% if sort.0 == "top" || sort.0 == "controversial" %}<select id="timeframe" name="t" title="Timeframe">
 					{% call utils::options(sort.1, ["hour", "day", "week", "month", "year", "all"], "day") %}
 				</select>
@@ -86,11 +87,11 @@
 
 			<footer>
 				{% if !ends.0.is_empty() %}
-				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0 }}" accesskey="P">PREV</a>
+				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&before={{ ends.0 }}{{ self.home_feed_param()|safe }}" accesskey="P">PREV</a>
 				{% endif %}
 
 				{% if !ends.1.is_empty() %}
-				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1 }}" accesskey="N">NEXT</a>
+				<a href="?sort={{ sort.0 }}&t={{ sort.1 }}&after={{ ends.1 }}{{ self.home_feed_param()|safe }}" accesskey="N">NEXT</a>
 				{% endif %}
 			</footer>
 		</div>
