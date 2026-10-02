@@ -287,14 +287,15 @@
 				<img loading="lazy" decoding="async" alt="Post image" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.url }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
 			</a>
 			{% else if post.post_type == "gallery" %}
+			{% if let Some(first_image) = post.gallery.first() %}
 			<a href="{{ post.permalink }}">
-				{% let first_image = post.gallery.first().unwrap() -%}
 				<img loading="lazy" decoding="async" alt="Gallery preview" src="{% if !first_image.preview_url.is_empty() %}{{ first_image.preview_url }}{% else %}{{ first_image.url }}{% endif %}"{% if first_image.width > 0 && first_image.height > 0 %} style="aspect-ratio: {{ first_image.width }} / {{ first_image.height }}"{% endif %}/>
 				<span class="media_badge">
 					<svg class="icon" viewBox="0 0 24 24" width="12" height="12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
 					{{ post.gallery.len() }} images
 				</span>
 			</a>
+			{% endif %}
 			{% else %}
 			<a href="{{ post.permalink }}">
 				<img loading="lazy" decoding="async" alt="Video preview" src="{% if !post.media.preview_url.is_empty() %}{{ post.media.preview_url }}{% else %}{{ post.media.poster }}{% endif %}"{% if post.media.width > 0 && post.media.height > 0 %} style="aspect-ratio: {{ post.media.width }} / {{ post.media.height }}"{% endif %}/>
