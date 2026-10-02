@@ -22,6 +22,10 @@ env:
   # falls back to gcc, which rejects the clang-style --target flag. Only read for that target.
   CC_aarch64_unknown_linux_musl: clang
   CXX_aarch64_unknown_linux_musl: clang++
+  # BoringSSL defines _FILE_OFFSET_BITS 64, so glibc headers rename fopen to fopen64, which
+  # musl lacks. off_t is 64-bit on aarch64 regardless; =32 just stops the *64 renaming.
+  CFLAGS_aarch64_unknown_linux_musl: -D_FILE_OFFSET_BITS=32
+  CXXFLAGS_aarch64_unknown_linux_musl: -D_FILE_OFFSET_BITS=32
 
 jobs:
   build:
@@ -64,13 +68,22 @@ jobs:
       - name: Build
         run: RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target ${{ matrix.target }}
 
+      # Not a server smoke test: startup blocks on a Reddit token, and Reddit blocks runner IPs.
       - name: Check binary
         run: |
-          file target/${{ matrix.target }}/release/redlib
-          target/${{ matrix.target }}/release/redlib --version
+          bin=target/${{ matrix.target }}/release/redlib
+          file "$bin" | tee /dev/stderr | grep -Eq "statically linked|static-pie linked"
+          "$bin" --version
 
       - name: Package release
         run: tar czf redlib-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release/ redlib
+
+      # Also on PRs, so a binary can be downloaded and tried before merge.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redlib-${{ matrix.target }}
+          path: redlib-${{ matrix.target }}.tar.gz
+          retention-days: 7
 
       - name: Upload release
         if: github.event_name != 'pull_request'
