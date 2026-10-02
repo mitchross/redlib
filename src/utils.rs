@@ -1499,6 +1499,82 @@ pub fn to_absolute_url(relative_path: &str) -> String {
 	format!("{}{}", config::get_setting("REDLIB_FULL_URL").unwrap_or_default(), relative_path)
 }
 
+// =====================================
+// ACTIVE USERS TRACKING
+// =====================================
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, RwLock};
+use std::time::Instant;
+
+/// TTL for considering a user "active" (5 minutes)
+const ACTIVE_USER_TTL_SECS: u64 = 300;
+
+/// How stale a visitor's timestamp may get before it is rewritten. Until then,
+/// repeat requests only take the shared read lock.
+const ACTIVE_USER_REFRESH_SECS: u64 = 30;
+
+/// Minimum gap between sweeps of expired visitors. The count shown in the
+/// footer may lag by up to this long.
+const ACTIVE_USER_SWEEP_SECS: u64 = 10;
+
+/// Storage for active users: maps hashed IP to last seen time
+static ACTIVE_USERS: LazyLock<RwLock<HashMap<u64, Instant>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Hash an IP address string to a u64 for privacy
+fn hash_ip(ip: &str) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	ip.hash(&mut hasher);
+	hasher.finish()
+}
+
+/// Register a visitor by their IP address (hashed for privacy)
+pub fn register_active_user(ip: &str) {
+	let hashed = hash_ip(ip);
+	let now = Instant::now();
+	let refresh = std::time::Duration::from_secs(ACTIVE_USER_REFRESH_SECS);
+
+	// Every request (media proxying included) lands here, so skip the exclusive
+	// lock for visitors whose timestamp is still fresh.
+	if let Ok(users) = ACTIVE_USERS.read() {
+		if users.get(&hashed).is_some_and(|last_seen| now.duration_since(*last_seen) < refresh) {
+			return;
+		}
+	}
+
+	if let Ok(mut users) = ACTIVE_USERS.write() {
+		users.insert(hashed, now);
+	}
+}
+
+/// Get the count of active users (seen within TTL)
+pub fn get_active_users_count() -> usize {
+	static COUNT: AtomicUsize = AtomicUsize::new(0);
+	static LAST_SWEEP: Mutex<Option<Instant>> = Mutex::new(None);
+
+	let now = Instant::now();
+	let ttl = std::time::Duration::from_secs(ACTIVE_USER_TTL_SECS);
+	let sweep_every = std::time::Duration::from_secs(ACTIVE_USER_SWEEP_SECS);
+
+	// The sweep walks every entry under the exclusive lock, so run it at most
+	// once per interval rather than on every page render. If another thread is
+	// already sweeping, use the last count.
+	if let Ok(mut last_sweep) = LAST_SWEEP.try_lock() {
+		if last_sweep.is_none_or(|last| now.duration_since(last) >= sweep_every) {
+			if let Ok(mut users) = ACTIVE_USERS.write() {
+				// Clean up expired entries and count active ones
+				users.retain(|_, last_seen| now.duration_since(*last_seen) < ttl);
+				COUNT.store(users.len(), Ordering::Relaxed);
+			}
+			*last_sweep = Some(now);
+		}
+	}
+
+	COUNT.load(Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
@@ -1809,49 +1885,5 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 			std::fs::write(format!("/tmp/config_{}.txt", i + 1), &encoded).unwrap();
 			eprintln!("Config {} written to /tmp/config_{}.txt ({} chars)", i + 1, i + 1, encoded.len());
 		}
-	}
-}
-
-// =====================================
-// ACTIVE USERS TRACKING
-// =====================================
-
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::RwLock;
-use std::time::Instant;
-
-/// TTL for considering a user "active" (5 minutes)
-const ACTIVE_USER_TTL_SECS: u64 = 300;
-
-/// Storage for active users: maps hashed IP to last seen time
-static ACTIVE_USERS: LazyLock<RwLock<HashMap<u64, Instant>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
-
-/// Hash an IP address string to a u64 for privacy
-fn hash_ip(ip: &str) -> u64 {
-	let mut hasher = DefaultHasher::new();
-	ip.hash(&mut hasher);
-	hasher.finish()
-}
-
-/// Register a visitor by their IP address (hashed for privacy)
-pub fn register_active_user(ip: &str) {
-	let hashed = hash_ip(ip);
-	if let Ok(mut users) = ACTIVE_USERS.write() {
-		users.insert(hashed, Instant::now());
-	}
-}
-
-/// Get the count of active users (seen within TTL)
-pub fn get_active_users_count() -> usize {
-	let now = Instant::now();
-	let ttl = std::time::Duration::from_secs(ACTIVE_USER_TTL_SECS);
-
-	if let Ok(mut users) = ACTIVE_USERS.write() {
-		// Clean up expired entries and count active ones
-		users.retain(|_, last_seen| now.duration_since(*last_seen) < ttl);
-		users.len()
-	} else {
-		0
 	}
 }
