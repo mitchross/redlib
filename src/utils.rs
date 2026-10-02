@@ -359,6 +359,8 @@ pub struct Post {
 	pub score_raw: i64,
 	/// Member count of the post's subreddit, for ranking within a combined feed.
 	pub community_size: u64,
+	/// Proxied subreddit icon, present when the listing was fetched with `sr_detail=true`.
+	pub community_icon: String,
 	pub upvote_ratio: i64,
 	pub post_type: String,
 	pub flair: Flair,
@@ -381,6 +383,23 @@ pub struct Post {
 /// Smallest community size used when ranking, so a few upvotes in a tiny
 /// subreddit can't outrank everything else.
 const MIN_RANKING_COMMUNITY: f64 = 10_000.0;
+
+/// Proxied icon URL from a subreddit object (an `sr_detail` or an about.json
+/// `data`): the new-style `community_icon`, else the old `icon_img`.
+pub fn subreddit_icon(subreddit: &Value) -> String {
+	let icon = subreddit["community_icon"]
+		.as_str()
+		.filter(|s| !s.is_empty())
+		.or_else(|| subreddit["icon_img"].as_str())
+		.unwrap_or_default();
+	format_url(icon)
+}
+
+/// Stable hue (0-359) for a name, so a subreddit without an icon always gets
+/// the same colored letter avatar.
+pub fn avatar_hue(name: &str) -> u32 {
+	name.to_lowercase().bytes().fold(7u32, |hash, byte| hash.wrapping_mul(31).wrapping_add(u32::from(byte))) % 360
+}
 
 /// See [`Post::relative_hot`].
 fn relative_hot(score: i64, community_size: u64, created_ts: u64) -> f64 {
@@ -506,6 +525,7 @@ impl Post {
 				created_ts,
 				score_raw: score,
 				community_size: data["subreddit_subscribers"].as_u64().unwrap_or_default(),
+				community_icon: subreddit_icon(&data["sr_detail"]),
 				num_duplicates: post["data"]["num_duplicates"].as_u64().unwrap_or(0),
 				comments: format_num(data["num_comments"].as_i64().unwrap_or_default()),
 				gallery,
@@ -952,6 +972,7 @@ pub async fn parse_post(post: &Value) -> Post {
 		created_ts,
 		score_raw: score,
 		community_size: post["data"]["subreddit_subscribers"].as_u64().unwrap_or_default(),
+		community_icon: subreddit_icon(&post["data"]["sr_detail"]),
 		num_duplicates: post["data"]["num_duplicates"].as_u64().unwrap_or(0),
 		comments: format_num(post["data"]["num_comments"].as_i64().unwrap_or_default()),
 		gallery,

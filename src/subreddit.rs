@@ -167,6 +167,8 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	let post_count = setting(&req, "post_count");
 	let limit: u32 = post_count.parse().unwrap_or(50).clamp(1, 100);
 	params.push_str(&format!("&limit={limit}"));
+	// Include each post's subreddit details, for the icons in the feed.
+	params.push_str("&sr_detail=true");
 	if sub_name == "popular" {
 		let geo_filter = match GEO_FILTER_MATCH.captures(&query) {
 			Some(geo_filter) => geo_filter["region"].to_string(),

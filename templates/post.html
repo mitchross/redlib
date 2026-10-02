@@ -51,6 +51,15 @@
 {% block content %}
 	<div id="column_one">
 		{% call utils::post(post) %}
+		{# Lets recentPosts.js remember this thread for the feed's "Recent posts" (browser-only). #}
+		<div id="recent_post_data" hidden
+			data-url="{{ post.permalink }}"
+			data-title="{{ post.title }}"
+			data-community="{{ post.community }}"
+			data-thumb="{% if !post.thumbnail.url.is_empty() %}{{ post.thumbnail.url }}{% endif %}"
+			data-score="{{ post.score.0 }}"
+			data-comments="{{ post.comments.0 }}"></div>
+		<script src="/recentPosts.js?v={{ env!("REDLIB_BUILD_STAMP") }}" defer></script>
 
 		<!-- SORT FORM -->
        <div id="commentQueryForms">
