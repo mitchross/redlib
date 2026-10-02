@@ -13,6 +13,7 @@
 
 {% block content %}
 <script src="/themePreview.js?v={{ env!("REDLIB_BUILD_STAMP") }}" defer></script>
+<script src="/importSubscriptions.js?v={{ env!("REDLIB_BUILD_STAMP") }}" defer></script>
 <div id="settings">
 	<form action="/settings" method="POST">
 		<div class="prefs">
@@ -191,6 +192,12 @@
 			cookies &mdash; nothing is kept on the server and your Reddit account is
 			never linked to it.
 		</p>
+		{% if import_too_large %}
+		<p class="import_hint" role="alert">
+			<strong>That paste was too large to import.</strong>
+			Import one page of Reddit's list at a time (100 subreddits per page).
+		</p>
+		{% endif %}
 		{% if let Some(count) = imported %}
 		<p class="import_hint" role="status">
 			<strong>Imported {{ count }} subreddit{% if *count != 1 %}s{% endif %}.</strong>
@@ -201,7 +208,8 @@
 			{% endif %}
 		</p>
 		{% endif %}
-		<form action="/settings/import-subscriptions/" method="POST">
+		<form id="import_subscriptions" action="/settings/import-subscriptions/" method="POST">
+			<input type="hidden" name="import_after" value="">
 			<textarea id="import_data" name="import_data" rows="4" required
 				placeholder="Paste mine.json, CSV, or a list like: r/rust r/selfhosted"></textarea>
 			<button class="import" type="submit">Import</button>
