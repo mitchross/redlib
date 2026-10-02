@@ -12,8 +12,9 @@ use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicBool, AtomicU16};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64};
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, EmulationFactory, Method, Response as WreqResponse};
 use wreq_util::{Emulation, EmulationOS, EmulationOption};
@@ -38,6 +39,12 @@ pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| {
 pub static OAUTH_RATELIMIT_REMAINING: AtomicU16 = AtomicU16::new(99);
 
 pub static OAUTH_IS_ROLLING_OVER: AtomicBool = AtomicBool::new(false);
+
+/// Unix seconds of the last token refresh triggered by a blocked (403) response.
+static LAST_FORBIDDEN_REFRESH: AtomicU64 = AtomicU64::new(0);
+
+/// Minimum gap between 403-triggered refreshes, so a lasting block can't hammer the token endpoint.
+const FORBIDDEN_REFRESH_COOLDOWN_SECS: u64 = 60;
 
 const URL_PAIRS: [(&str, &str); 2] = [
 	(ALTERNATIVE_REDDIT_URL_BASE, ALTERNATIVE_REDDIT_URL_BASE_HOST),
@@ -425,6 +432,11 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
+							// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
+							if status.as_u16() == 403 && claim_refresh_slot(&LAST_FORBIDDEN_REFRESH, unix_now(), FORBIDDEN_REFRESH_COOLDOWN_SECS) {
+								warn!("Reddit returned a non-JSON 403; spawning force_refresh_token()");
+								tokio::spawn(force_refresh_token());
+							}
 							if status.is_server_error() {
 								Err("Reddit is having issues, check if there's an outage".to_string())
 							} else {
@@ -438,6 +450,16 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
 	}
+}
+
+fn unix_now() -> u64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Returns true for at most one caller per `cooldown` seconds.
+fn claim_refresh_slot(last: &AtomicU64, now: u64, cooldown: u64) -> bool {
+	let prev = last.load(Ordering::SeqCst);
+	now.saturating_sub(prev) >= cooldown && last.compare_exchange(prev, now, Ordering::SeqCst, Ordering::SeqCst).is_ok()
 }
 
 async fn self_check(sub: &str) -> Result<(), String> {
@@ -506,6 +528,18 @@ impl IntoHyperResponse for WreqResponse {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn forbidden_refresh_is_rate_limited() {
+		use super::claim_refresh_slot;
+		use std::sync::atomic::AtomicU64;
+		let last = AtomicU64::new(0);
+		assert!(claim_refresh_slot(&last, 1_000, 60));
+		assert!(!claim_refresh_slot(&last, 1_030, 60));
+		assert!(!claim_refresh_slot(&last, 1_059, 60));
+		assert!(claim_refresh_slot(&last, 1_060, 60));
+		assert!(!claim_refresh_slot(&last, 1_061, 60));
+	}
+
 	use super::*;
 	use {crate::config::get_setting, sealed_test::prelude::*};
 
