@@ -20,6 +20,10 @@ use url::form_urlencoded;
 struct SettingsTemplate {
 	prefs: Preferences,
 	url: String,
+	/// How many subreddits the last import read, shown after an import.
+	imported: Option<usize>,
+	/// Reddit's `after` cursor when the pasted mine.json page wasn't the last one.
+	import_next: Option<String>,
 }
 
 // CONSTANTS
@@ -53,9 +57,13 @@ const PREFS: [&str; 21] = [
 /// Retrieve cookies from request "Cookie" header
 pub async fn get(req: Request<Body>) -> Result<Response<Body>, String> {
 	let url = req.uri().to_string();
+	let query = req.uri().query().unwrap_or_default();
+	let query_param = |name: &str| form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
 	Ok(template(&SettingsTemplate {
 		prefs: Preferences::new(&req),
 		url,
+		imported: query_param("imported").and_then(|n| n.parse().ok()),
+		import_next: query_param("import_next").filter(|after| is_listing_cursor(after)),
 	}))
 }
 
@@ -300,14 +308,20 @@ pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, 
 	let mut sub_list = Preferences::new(&req).subscriptions;
 
 	// Merge (case-insensitive dedupe), then sort like the subscribe endpoint
-	for name in parse_subreddit_names(&import_data) {
+	let names = parse_subreddit_names(&import_data);
+	let imported = names.len();
+	for name in names {
 		if !sub_list.iter().any(|s| s.to_lowercase() == name.to_lowercase()) {
 			sub_list.push(name);
 		}
 	}
 	sub_list.sort_by_key(|a| a.to_lowercase());
 
-	let mut response = redirect("/settings");
+	// mine.json is paged (25 by default, 100 at most). When this wasn't the last
+	// page, send the cursor back so the settings page can link the next one.
+	// Only the cursor goes in the URL, never the subreddit names.
+	let next = listing_after(&import_data).map(|after| format!("&import_next={after}")).unwrap_or_default();
+	let mut response = redirect(&format!("/settings?imported={imported}{next}"));
 
 	let mut subscriptions_number_to_delete_from = 0;
 	for (subscriptions_number, list) in join_until_size_limit(&sub_list).into_iter().enumerate() {
@@ -378,6 +392,21 @@ fn parse_subreddit_names(input: &str) -> Vec<String> {
 	names
 }
 
+/// Reddit's `data.after` cursor from a pasted listing JSON, if there is a next page.
+fn listing_after(input: &str) -> Option<String> {
+	let json: serde_json::Value = serde_json::from_str(input.trim()).ok()?;
+	let after = json["data"]["after"].as_str()?;
+	is_listing_cursor(after).then(|| after.to_string())
+}
+
+/// A subreddit listing cursor looks like `t5_2qh1i`. Anything else is ignored,
+/// since it ends up in a link on the settings page.
+fn is_listing_cursor(after: &str) -> bool {
+	after
+		.strip_prefix("t5_")
+		.is_some_and(|id| !id.is_empty() && id.len() <= 16 && id.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
 fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
 	match value {
 		serde_json::Value::Object(map) => {
@@ -427,4 +456,30 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 	let url = format!("/settings/restore/?{}", prefs.to_urlencoded()?);
 
 	Ok(redirect(&url))
+}
+
+#[cfg(test)]
+mod import_tests {
+	use super::{is_listing_cursor, listing_after, parse_subreddit_names};
+
+	#[test]
+	fn reads_names_and_next_page_cursor() {
+		let page = r#"{"kind":"Listing","data":{"after":"t5_2qh1i","children":[{"data":{"display_name":"rust"}},{"data":{"display_name":"linux"}}]}}"#;
+		assert_eq!(parse_subreddit_names(page), vec!["rust", "linux"]);
+		assert_eq!(listing_after(page).as_deref(), Some("t5_2qh1i"));
+	}
+
+	#[test]
+	fn last_page_and_non_json_have_no_cursor() {
+		assert_eq!(listing_after(r#"{"data":{"after":null,"children":[]}}"#), None);
+		assert_eq!(listing_after("r/rust r/linux"), None);
+	}
+
+	#[test]
+	fn only_subreddit_cursors_are_accepted() {
+		assert!(is_listing_cursor("t5_2qh1i"));
+		for bad in ["", "t5_", "t3_abc", "t5_abc\"><script>", "t5_abc&x=1", "t5_aaaaaaaaaaaaaaaaaaaa"] {
+			assert!(!is_listing_cursor(bad), "{bad}");
+		}
+	}
 }

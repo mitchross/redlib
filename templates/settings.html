@@ -182,14 +182,25 @@
 		<legend>Import subscriptions from Reddit</legend>
 		<p class="import_hint">
 			While logged into Reddit in this browser, open
-			<a href="https://www.reddit.com/subreddits/mine.json" rel="nofollow noreferrer" target="_blank">reddit.com/subreddits/mine.json</a>,
-			copy everything, and paste it below. Reddit's data-export
+			<a href="https://www.reddit.com/subreddits/mine.json?limit=100" rel="nofollow noreferrer" target="_blank">reddit.com/subreddits/mine.json?limit=100</a>,
+			copy everything, and paste it below. Reddit sends at most 100 per page;
+			if you follow more, this page links the next one after you import. Reddit's data-export
 			<code>subscribed_subreddits.csv</code> or a plain list (one subreddit per
 			line, <code>r/name</code>, or full URLs) also works. Your list is sent
 			once to this instance to be parsed and is stored only in this browser's
 			cookies &mdash; nothing is kept on the server and your Reddit account is
 			never linked to it.
 		</p>
+		{% if let Some(count) = imported %}
+		<p class="import_hint" role="status">
+			<strong>Imported {{ count }} subreddit{% if *count != 1 %}s{% endif %}.</strong>
+			{% if let Some(next) = import_next %}
+			That was one page and there are more: open
+			<a href="https://www.reddit.com/subreddits/mine.json?limit=100&amp;after={{ next }}" rel="nofollow noreferrer" target="_blank">the next page</a>,
+			copy everything, and import it too.
+			{% endif %}
+		</p>
+		{% endif %}
 		<form action="/settings/import-subscriptions/" method="POST">
 			<textarea id="import_data" name="import_data" rows="4" required
 				placeholder="Paste mine.json, CSV, or a list like: r/rust r/selfhosted"></textarea>

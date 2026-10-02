@@ -147,6 +147,30 @@ impl Oauth {
 		.await
 	}
 
+	/// One attempt at a fresh client for a background refresh: the default
+	/// backend, then GenericWeb unless a backend is forced. Unlike `new`, it
+	/// never retries for long or exits the process; on failure the caller keeps
+	/// the current token and a later trigger tries again.
+	async fn try_refresh() -> Option<Self> {
+		let forced_backend = std::env::var("REDLIB_OAUTH_BACKEND").ok();
+		let mut backends = vec![match forced_backend.as_deref() {
+			Some("generic") => OauthBackendImpl::GenericWeb(GenericWebAuth::new()),
+			_ => OauthBackendImpl::MobileSpoof(MobileSpoofAuth::new()),
+		}];
+		if forced_backend.is_none() {
+			backends.push(OauthBackendImpl::GenericWeb(GenericWebAuth::new()));
+		}
+
+		for backend in backends {
+			match Self::new_with_timeout_with_backend(backend).await {
+				Ok(Ok(oauth)) => return Some(oauth),
+				Ok(Err(e)) => warn!("[⚠️] Token refresh attempt failed: {e:?}"),
+				Err(_) => warn!("[⚠️] Token refresh attempt timed out"),
+			}
+		}
+		None
+	}
+
 	pub fn user_agent(&self) -> &str {
 		self.backend.user_agent()
 	}
@@ -177,8 +201,10 @@ pub async fn token_daemon() {
 		// Get expiry time - be sure to not hold the read lock
 		let expires_in = { OAUTH_CLIENT.load_full().expires_in };
 
-		// sleep for the expiry time minus 2 minutes
-		let duration = Duration::from_secs(expires_in - 120);
+		// Sleep for the expiry time minus 2 minutes. Saturating, with a floor:
+		// a token shorter than 2 minutes used to underflow and panic this task,
+		// silently ending scheduled refreshes.
+		let duration = Duration::from_secs(expires_in.saturating_sub(120).max(30));
 
 		info!("[⏳] Waiting for {duration:?} seconds before refreshing OAuth token...");
 
@@ -186,24 +212,38 @@ pub async fn token_daemon() {
 
 		info!("[⌛] {duration:?} Elapsed! Refreshing OAuth token...");
 
-		// Refresh token - in its own scope
-		{
-			force_refresh_token().await;
+		// On failure the current token is kept but will expire soon, so retry
+		// in a minute rather than after another full token lifetime.
+		while !force_refresh_token().await {
+			tokio::time::sleep(Duration::from_secs(60)).await;
 		}
 	}
 }
 
-pub async fn force_refresh_token() {
+/// Swap in a fresh OAuth client. Returns false if it couldn't, in which case the
+/// current client stays in place. Concurrent calls collapse into one.
+pub async fn force_refresh_token() -> bool {
 	if OAUTH_IS_ROLLING_OVER.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
 		trace!("Skipping refresh token roll over, already in progress");
-		return;
+		return true;
 	}
 
 	trace!("Rolling over refresh token. Current rate limit: {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst));
-	let new_client = Oauth::new().await;
-	OAUTH_CLIENT.swap(new_client.into());
-	OAUTH_RATELIMIT_REMAINING.store(99, Ordering::SeqCst);
+	let refreshed = match Oauth::try_refresh().await {
+		Some(new_client) => {
+			OAUTH_CLIENT.swap(new_client.into());
+			OAUTH_RATELIMIT_REMAINING.store(99, Ordering::SeqCst);
+			true
+		}
+		// Used to fall through to Oauth::new, which retries ~100 s and then exits the
+		// process. The current token may still work, so keep it.
+		None => {
+			warn!("[⚠️] Could not refresh the OAuth token; keeping the current one");
+			false
+		}
+	};
 	OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
+	refreshed
 }
 
 #[derive(Debug, Clone, Default)]
