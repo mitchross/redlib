@@ -320,7 +320,15 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	}
 	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
 	// above until Reddit's next rate-limit header resets the count.
-	let _ = OAUTH_RATELIMIT_REMAINING.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| remaining.checked_sub(1));
+	// (A plain CAS loop: `fetch_update` is deprecated on newer Rust, and its
+	// replacement `try_update` isn't available at our MSRV.)
+	let mut remaining = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
+	while remaining > 0 {
+		match OAUTH_RATELIMIT_REMAINING.compare_exchange_weak(remaining, remaining - 1, Ordering::SeqCst, Ordering::SeqCst) {
+			Ok(_) => break,
+			Err(actual) => remaining = actual,
+		}
+	}
 
 	// Fetch the url...
 	match reddit_get(path.clone(), quarantine).await {
