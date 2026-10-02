@@ -39,11 +39,13 @@ pub static OAUTH_RATELIMIT_REMAINING: AtomicU16 = AtomicU16::new(99);
 
 pub static OAUTH_IS_ROLLING_OVER: AtomicBool = AtomicBool::new(false);
 
-/// Unix seconds of the last token refresh triggered by a blocked (403) response.
-static LAST_FORBIDDEN_REFRESH: AtomicU64 = AtomicU64::new(0);
+/// Unix seconds of the last token refresh triggered by a Reddit response
+/// (blocked 403, 401, empty body, or a low rate limit).
+static LAST_TRIGGERED_REFRESH: AtomicU64 = AtomicU64::new(0);
 
-/// Minimum gap between 403-triggered refreshes, so a lasting block can't hammer the token endpoint.
-const FORBIDDEN_REFRESH_COOLDOWN_SECS: u64 = 60;
+/// Minimum gap between response-triggered refreshes, so a lasting block or rate
+/// limit can't hammer the token endpoint.
+const TRIGGERED_REFRESH_COOLDOWN_SECS: u64 = 60;
 
 const URL_PAIRS: [(&str, &str); 2] = [
 	(ALTERNATIVE_REDDIT_URL_BASE, ALTERNATIVE_REDDIT_URL_BASE_HOST),
@@ -314,8 +316,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);
-	if current_rate_limit < 10 && !is_rolling_over {
-		warn!("Rate limit {current_rate_limit} is low. Spawning force_refresh_token()");
+	if current_rate_limit < 10 && !is_rolling_over && refresh_due(&format!("Rate limit {current_rate_limit} is low")) {
 		tokio::spawn(force_refresh_token());
 	}
 	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
@@ -359,8 +360,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 			match response.bytes().await {
 				Ok(body) => {
 					if body.is_empty() {
-						// Rate limited, so spawn a force_refresh_token()
-						tokio::spawn(force_refresh_token());
+						// Rate limited, so refresh the token (at most once per cooldown)
+						if refresh_due("Reddit returned an empty body") {
+							tokio::spawn(force_refresh_token());
+						}
 						return match reset {
 							Some(val) => Err(format!(
 								"Reddit rate limit exceeded. Try refreshing in a few seconds.\
@@ -386,8 +389,9 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 							if json["error"].is_i64() {
 								// OAuth token has expired; http status 401
 								if json["message"] == "Unauthorized" {
-									error!("Forcing a token refresh");
-									let () = force_refresh_token().await;
+									if refresh_due("Reddit says the OAuth token is unauthorized") {
+										force_refresh_token().await;
+									}
 									return Err("OAuth token has expired. Please refresh the page!".to_string());
 								}
 
@@ -416,8 +420,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
 							// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
-							if status.as_u16() == 403 && claim_refresh_slot(&LAST_FORBIDDEN_REFRESH, unix_now(), FORBIDDEN_REFRESH_COOLDOWN_SECS) {
-								warn!("Reddit returned a non-JSON 403; spawning force_refresh_token()");
+							if status.as_u16() == 403 && refresh_due("Reddit returned a non-JSON 403") {
 								tokio::spawn(force_refresh_token());
 							}
 							if status.is_server_error() {
@@ -433,6 +436,18 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
 	}
+}
+
+/// Whether a response-triggered token refresh may start now. Every trigger
+/// shares one cooldown, so at most one such refresh starts per minute.
+fn refresh_due(reason: &str) -> bool {
+	let due = claim_refresh_slot(&LAST_TRIGGERED_REFRESH, unix_now(), TRIGGERED_REFRESH_COOLDOWN_SECS);
+	if due {
+		warn!("{reason}; refreshing the OAuth token");
+	} else {
+		trace!("{reason}; token refresh still on cooldown");
+	}
+	due
 }
 
 fn unix_now() -> u64 {
@@ -512,7 +527,7 @@ impl IntoHyperResponse for WreqResponse {
 #[cfg(test)]
 mod tests {
 	#[test]
-	fn forbidden_refresh_is_rate_limited() {
+	fn triggered_refresh_is_rate_limited() {
 		use super::claim_refresh_slot;
 		use std::sync::atomic::AtomicU64;
 		let last = AtomicU64::new(0);
