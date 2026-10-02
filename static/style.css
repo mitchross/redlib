@@ -367,6 +367,9 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
     }
 
     #sidenav a {
+        /* The rail is a fixed-height scrolling column; without this, a long
+           subscription list squeezes every row shorter than its text. */
+        flex-shrink: 0;
         padding: 8px 12px;
         border-radius: var(--radius-m);
         font-size: var(--font-m);
@@ -389,6 +392,7 @@ body.gallery.wide main:has(#posts.post-gallery) #column_one {
     }
 
     .sidenav_label {
+        flex-shrink: 0;
         font-size: var(--font-xs);
         font-weight: 600;
         letter-spacing: 0.08em;
