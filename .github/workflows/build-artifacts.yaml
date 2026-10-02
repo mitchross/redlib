@@ -7,65 +7,70 @@ on:
       - "compose.*"
     branches:
       - "main"
+  pull_request:
+    paths-ignore:
+      - "*.md"
+      - "compose.*"
+    branches:
+      - "main"
   release:
     types: [published]
 
-env: 
+env:
   CARGO_TERM_COLOR: always
-
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
-  CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
-  CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER: arm-linux-gnueabihf-gcc
-  CC_armv7_unknown_linux_musleabihf: arm-linux-gnueabihf-gcc
 
 jobs:
   build:
     name: Rust project - latest
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
+      # One target failing shouldn't cancel the others' binaries.
+      fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
+        # Build each target natively: cross-compiling BoringSSL (via wreq) and ring for musl
+        # with glibc cross-gcc picks up the host's glibc headers. No native armv7 runner exists.
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            arch: x86_64
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            arch: aarch64
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
-      
-      - if: matrix.target == 'x86_64-unknown-linux-musl'
+          # The action defaults RUSTFLAGS to `-D warnings`; lints are pull-request.yml's job.
+          rustflags: ""
+
+      # Same toolchain setup as main-rust.yml's musl build: clang stands in for the musl C/C++ compilers.
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools git cmake perl pkg-config libclang-dev clang
-          sudo ln -s /usr/bin/clang /usr/local/bin/x86_64-linux-musl-cc
-          sudo ln -s /usr/bin/clang++ /usr/local/bin/x86_64-linux-musl-g++
-
-      - if: matrix.target == 'armv7-unknown-linux-musleabihf'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-linux-gnueabihf musl-tools git cmake perl pkg-config libclang-dev clang
-          sudo ln -s /usr/bin/clang++ /usr/local/bin/arm-linux-musleabihf-g++
-
-      - if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu musl-tools git cmake perl pkg-config libclang-dev clang
-          sudo ln -s /usr/bin/clang++ /usr/local/bin/aarch64-linux-musl-g++
+          sudo ln -s /usr/bin/clang /usr/local/bin/${{ matrix.arch }}-linux-musl-cc
+          sudo ln -s /usr/bin/clang++ /usr/local/bin/${{ matrix.arch }}-linux-musl-g++
 
       - name: Versions
         id: version
         run: echo "VERSION=$(cargo metadata --format-version 1 --no-deps | jq .packages[0].version -r | sed 's/^/v/')" >> "$GITHUB_OUTPUT"
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target ${{ matrix.target }}
+
+      - name: Check binary
+        run: |
+          file target/${{ matrix.target }}/release/redlib
+          target/${{ matrix.target }}/release/redlib --version
 
       - name: Package release
         run: tar czf redlib-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release/ redlib
 
       - name: Upload release
-        uses: softprops/action-gh-release@v1
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
           name: ${{ steps.version.outputs.VERSION }} - ${{ github.event.head_commit.message }}
@@ -75,6 +80,3 @@ jobs:
           body: |
             - ${{ github.event.head_commit.message }} ${{ github.sha }}
           generate_release_notes: true
-
-
-
