@@ -2,8 +2,9 @@
 {% import "utils.html" as utils %}
 
 {% block title %}
-	{% if single_thread %}
-		{{ comments[0].author.name }} comments on {{ post.title }} - r/{{ post.community }}
+	{# A single-thread link can still come back with no comments (e.g. a post with none yet). #}
+	{% if let (true, Some(comment)) = (single_thread, comments.first()) %}
+		{{ comment.author.name }} comments on {{ post.title }} - r/{{ post.community }}
 	{% else %}
 		{{ post.title }} - r/{{ post.community }}
 	{% endif %}
