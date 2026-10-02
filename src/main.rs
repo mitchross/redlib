@@ -280,6 +280,9 @@ async fn main() {
 	app
 		.at("/themePreview.js")
 		.get(|_| resource(include_str!("../static/themePreview.js"), "text/javascript", true).boxed());
+	app
+		.at("/importSubscriptions.js")
+		.get(|_| resource(include_str!("../static/importSubscriptions.js"), "text/javascript", true).boxed());
 
 	app.at("/commits.atom").get(|_| async move { proxy_commit_info().await }.boxed());
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());

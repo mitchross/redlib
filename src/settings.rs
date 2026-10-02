@@ -9,7 +9,7 @@ use crate::utils::{deflate_decompress, redirect, template, Preferences};
 use askama::Template;
 use cookie::Cookie;
 use futures_lite::StreamExt;
-use hyper::{Body, Request, Response};
+use hyper::{body::HttpBody, Body, Request, Response};
 use time::{Duration, OffsetDateTime};
 use tokio::time::timeout;
 use url::form_urlencoded;
@@ -24,6 +24,8 @@ struct SettingsTemplate {
 	imported: Option<usize>,
 	/// Reddit's `after` cursor when the pasted mine.json page wasn't the last one.
 	import_next: Option<String>,
+	/// The last import was rejected for being over IMPORT_BODY_LIMIT.
+	import_too_large: bool,
 }
 
 // CONSTANTS
@@ -64,6 +66,7 @@ pub async fn get(req: Request<Body>) -> Result<Response<Body>, String> {
 		url,
 		imported: query_param("imported").and_then(|n| n.parse().ok()),
 		import_next: query_param("import_next").filter(|after| is_listing_cursor(after)),
+		import_too_large: query_param("import_error").as_deref() == Some("too_large"),
 	}))
 }
 
@@ -290,15 +293,14 @@ pub async fn update(req: Request<Body>) -> Result<Response<Body>, String> {
 pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, String> {
 	let (parts, body) = req.into_parts();
 
-	let body_bytes = hyper::body::to_bytes(body).await.map_err(|e| format!("Failed to read request body: {e}"))?;
-	if body_bytes.len() > 1024 * 1024 {
-		return Err("Request body too large".to_string());
-	}
+	let Some(body_bytes) = read_body_limited(body, IMPORT_BODY_LIMIT).await? else {
+		return Ok(redirect("/settings?import_error=too_large"));
+	};
 
-	let import_data = form_urlencoded::parse(&body_bytes)
-		.find(|(key, _)| key == "import_data")
-		.map(|(_, value)| value.into_owned())
-		.unwrap_or_default();
+	let form_field = |name: &str| form_urlencoded::parse(&body_bytes).find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
+	let import_data = form_field("import_data").unwrap_or_default();
+	// Set by importSubscriptions.js, which sends only the names and this cursor.
+	let import_after = form_field("import_after").filter(|after| is_listing_cursor(after));
 
 	// Existing cookie header, needed to clean up stale numbered cookies
 	let cookies_string = parts.headers.get("cookie").map(|hv| hv.to_str().unwrap_or("").to_string()).unwrap_or_default();
@@ -320,7 +322,10 @@ pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, 
 	// mine.json is paged (25 by default, 100 at most). When this wasn't the last
 	// page, send the cursor back so the settings page can link the next one.
 	// Only the cursor goes in the URL, never the subreddit names.
-	let next = listing_after(&import_data).map(|after| format!("&import_next={after}")).unwrap_or_default();
+	let next = listing_after(&import_data)
+		.or(import_after)
+		.map(|after| format!("&import_next={after}"))
+		.unwrap_or_default();
 	let mut response = redirect(&format!("/settings?imported={imported}{next}"));
 
 	let mut subscriptions_number_to_delete_from = 0;
@@ -390,6 +395,25 @@ fn parse_subreddit_names(input: &str) -> Vec<String> {
 	}
 
 	names
+}
+
+/// Largest import upload accepted. With JavaScript the browser sends only the
+/// names (a few KB); this leaves room for a full 100-subreddit mine.json page
+/// posted without it.
+const IMPORT_BODY_LIMIT: usize = 8 * 1024 * 1024;
+
+/// Reads the whole body, or returns `None` as soon as it passes `limit` bytes,
+/// so an oversized upload is never buffered in full.
+async fn read_body_limited(mut body: Body, limit: usize) -> Result<Option<Vec<u8>>, String> {
+	let mut buf = Vec::new();
+	while let Some(chunk) = body.data().await {
+		let chunk = chunk.map_err(|e| format!("Failed to read request body: {e}"))?;
+		if buf.len() + chunk.len() > limit {
+			return Ok(None);
+		}
+		buf.extend_from_slice(&chunk);
+	}
+	Ok(Some(buf))
 }
 
 /// Reddit's `data.after` cursor from a pasted listing JSON, if there is a next page.
@@ -473,6 +497,14 @@ mod import_tests {
 	fn last_page_and_non_json_have_no_cursor() {
 		assert_eq!(listing_after(r#"{"data":{"after":null,"children":[]}}"#), None);
 		assert_eq!(listing_after("r/rust r/linux"), None);
+	}
+
+	#[tokio::test]
+	async fn body_reader_stops_past_the_limit() {
+		use super::read_body_limited;
+		use hyper::Body;
+		assert_eq!(read_body_limited(Body::from(vec![b'a'; 10]), 10).await, Ok(Some(vec![b'a'; 10])));
+		assert_eq!(read_body_limited(Body::from(vec![b'a'; 11]), 10).await, Ok(None));
 	}
 
 	#[test]
