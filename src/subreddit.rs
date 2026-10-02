@@ -180,6 +180,8 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 	let redirect_url = url[1..].replace('?', "%3F").replace('&', "%26").replace('+', "%2B");
 	let filters = get_filters(&req);
 	let home_feed = wants_home && sub_name == subscribed;
+	// Any front-page view of the user's subscriptions, via ?feed=home or front_page=default.
+	let subscription_feed = req.param("sub").is_none() && !subscribed.is_empty() && sub_name == subscribed;
 
 	// If all requested subs are filtered, we don't need to fetch posts.
 	if sub_name.split('+').all(|s| filters.contains(s)) {
@@ -203,6 +205,11 @@ pub async fn community(req: Request<Body>) -> Result<Response<Body>, String> {
 				let (_, all_posts_filtered) = filter_posts(&mut posts, &filters);
 				let no_posts = posts.is_empty();
 				let all_posts_hidden_nsfw = !no_posts && (posts.iter().all(|p| p.flags.nsfw) && setting(&req, "show_nsfw") != "on");
+				// Hot across many subreddits puts the biggest communities on top. Rank
+				// each post against its own community instead (see Post::relative_hot).
+				if subscription_feed && sort == "hot" {
+					posts.sort_by(|a, b| b.relative_hot().total_cmp(&a.relative_hot()));
+				}
 				if sort == "new" {
 					posts.sort_by_key(|p| std::cmp::Reverse(p.created_ts));
 					posts.sort_by_key(|p| std::cmp::Reverse(p.flags.stickied));

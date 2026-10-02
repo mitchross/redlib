@@ -355,6 +355,10 @@ pub struct Post {
 	pub poll: Option<Poll>,
 	pub score: (String, String),
 	pub score_tier: &'static str,
+	/// Raw score, for ranking (`score` is formatted for display).
+	pub score_raw: i64,
+	/// Member count of the post's subreddit, for ranking within a combined feed.
+	pub community_size: u64,
 	pub upvote_ratio: i64,
 	pub post_type: String,
 	pub flair: Flair,
@@ -374,7 +378,27 @@ pub struct Post {
 	pub ws_url: String,
 }
 
+/// Smallest community size used when ranking, so a few upvotes in a tiny
+/// subreddit can't outrank everything else.
+const MIN_RANKING_COMMUNITY: f64 = 10_000.0;
+
+/// See [`Post::relative_hot`].
+fn relative_hot(score: i64, community_size: u64, created_ts: u64) -> f64 {
+	let score = score.max(1) as f64;
+	let members = (community_size as f64).max(MIN_RANKING_COMMUNITY);
+	(score / members).log10() + created_ts as f64 / 45_000.0
+}
+
 impl Post {
+	/// Hot, but judged against the post's own community: score per member
+	/// (log scale) plus Reddit Hot's time decay of one order of magnitude per
+	/// 12.5 hours. In a combined subscription feed this lets a strong r/homelab
+	/// post outrank an ordinary r/aww one, which is roughly what Reddit's own
+	/// Home does for logged-in users.
+	pub fn relative_hot(&self) -> f64 {
+		relative_hot(self.score_raw, self.community_size, self.created_ts)
+	}
+
 	/// Fetch posts of a user or subreddit and return a vector of posts and the "after" value
 	pub async fn fetch(path: &str, quarantine: bool) -> Result<(Vec<Self>, String), String> {
 		// Send a request to the url
@@ -480,6 +504,8 @@ impl Post {
 				rel_time,
 				created,
 				created_ts,
+				score_raw: score,
+				community_size: data["subreddit_subscribers"].as_u64().unwrap_or_default(),
 				num_duplicates: post["data"]["num_duplicates"].as_u64().unwrap_or(0),
 				comments: format_num(data["num_comments"].as_i64().unwrap_or_default()),
 				gallery,
@@ -924,6 +950,8 @@ pub async fn parse_post(post: &Value) -> Post {
 		rel_time,
 		created,
 		created_ts,
+		score_raw: score,
+		community_size: post["data"]["subreddit_subscribers"].as_u64().unwrap_or_default(),
 		num_duplicates: post["data"]["num_duplicates"].as_u64().unwrap_or(0),
 		comments: format_num(post["data"]["num_comments"].as_i64().unwrap_or_default()),
 		gallery,
@@ -1885,5 +1913,32 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 			std::fs::write(format!("/tmp/config_{}.txt", i + 1), &encoded).unwrap();
 			eprintln!("Config {} written to /tmp/config_{}.txt ({} chars)", i + 1, i + 1, encoded.len());
 		}
+	}
+}
+
+#[cfg(test)]
+mod relative_hot_tests {
+	use super::relative_hot;
+
+	const NOW: u64 = 1_790_000_000;
+
+	#[test]
+	fn strong_small_community_post_beats_ordinary_big_one() {
+		// 1.5k upvotes in a ~1M-member sub vs 20k in a ~37M-member sub, same age.
+		assert!(relative_hot(1_500, 1_000_000, NOW) > relative_hot(20_000, 37_000_000, NOW));
+	}
+
+	#[test]
+	fn tiny_communities_are_floored() {
+		// 30 upvotes in a 500-member sub counts as if it had 10k members.
+		assert_eq!(relative_hot(30, 500, NOW), relative_hot(30, 10_000, NOW));
+	}
+
+	#[test]
+	fn newer_posts_still_rise() {
+		// Same relative score, 12.5 hours newer: one order of magnitude ahead.
+		let older = relative_hot(100, 100_000, NOW);
+		let newer = relative_hot(100, 100_000, NOW + 45_000);
+		assert!((newer - older - 1.0).abs() < 1e-9);
 	}
 }
