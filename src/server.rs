@@ -23,6 +23,7 @@ use std::{
 	result::Result,
 	str::{from_utf8, Split},
 	string::ToString,
+	sync::Arc,
 };
 use time::OffsetDateTime;
 
@@ -118,6 +119,7 @@ const BANNED_USER_AGENTS: &[&str] = &[
 ];
 
 type BoxResponse = Pin<Box<dyn Future<Output = Result<Response<Body>, String>> + Send>>;
+type Handler = fn(Request<Body>) -> BoxResponse;
 
 /// Compressors for the response Body, in ascending order of preference.
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -134,7 +136,19 @@ enum CompressionType {
 /// doesn't support it yet.
 const DEFAULT_COMPRESSOR: CompressionType = CompressionType::Gzip;
 
+/// Brotli quality (0–11) for response bodies. See `compress_body`.
+const BROTLI_QUALITY: i32 = 5;
+
 impl CompressionType {
+	/// The content coding token, as used in `Content-Encoding`.
+	const fn as_str(self) -> &'static str {
+		match self {
+			Self::Gzip => "gzip",
+			Self::Brotli => "br",
+			Self::Passthrough => "",
+		}
+	}
+
 	/// Returns a `CompressionType` given a content coding
 	/// in [RFC 7231](https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4)
 	/// format.
@@ -159,22 +173,18 @@ impl CompressionType {
 
 impl Display for CompressionType {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Gzip => write!(f, "gzip"),
-			Self::Brotli => write!(f, "br"),
-			Self::Passthrough => Ok(()),
-		}
+		f.write_str(self.as_str())
 	}
 }
 
 pub struct Route<'a> {
-	router: &'a mut Router<fn(Request<Body>) -> BoxResponse>,
+	router: &'a mut Router<Handler>,
 	path: String,
 }
 
 pub struct Server {
 	pub default_headers: HeaderMap,
-	router: Router<fn(Request<Body>) -> BoxResponse>,
+	router: Router<Handler>,
 }
 
 #[macro_export]
@@ -206,17 +216,26 @@ pub trait ResponseExt {
 	fn remove_cookie(&mut self, name: String);
 }
 
+/// Parses every cookie in the `Cookie` header(s). The cookies borrow from
+/// `headers`, so no names or values are copied. Malformed pairs are skipped.
+fn parse_cookies(headers: &HeaderMap) -> Vec<Cookie<'_>> {
+	headers
+		.get_all(header::COOKIE)
+		.iter()
+		.filter_map(|hdr| hdr.to_str().ok())
+		.flat_map(Cookie::split_parse)
+		.filter_map(Result::ok)
+		.collect()
+}
+
 impl RequestExt for Request<Body> {
 	fn params(&self) -> Params {
-		self.extensions().get::<Params>().unwrap_or(&Params::new()).clone()
-		// self.extensions()
-		// 	.get::<RequestMeta>()
-		// 	.and_then(|meta| meta.route_params())
-		// 	.expect("Routerify: No RouteParams added while processing request")
+		self.extensions().get::<Params>().cloned().unwrap_or_default()
 	}
 
 	fn param(&self, name: &str) -> Option<String> {
-		self.params().find(name).map(std::borrow::ToOwned::to_owned)
+		// Look the value up in place instead of cloning every route param first.
+		self.extensions().get::<Params>()?.find(name).map(ToOwned::to_owned)
 	}
 
 	fn set_params(&mut self, params: Params) -> Option<Params> {
@@ -224,14 +243,7 @@ impl RequestExt for Request<Body> {
 	}
 
 	fn cookies(&self) -> Vec<Cookie<'_>> {
-		self.headers().get("Cookie").map_or(Vec::new(), |header| {
-			header
-				.to_str()
-				.unwrap_or_default()
-				.split("; ")
-				.map(|cookie| Cookie::parse(cookie).unwrap_or_else(|_| Cookie::from("")))
-				.collect()
-		})
+		parse_cookies(self.headers())
 	}
 
 	fn cookie(&self, name: &str) -> Option<Cookie<'_>> {
@@ -241,14 +253,7 @@ impl RequestExt for Request<Body> {
 
 impl ResponseExt for Response<Body> {
 	fn cookies(&self) -> Vec<Cookie<'_>> {
-		self.headers().get("Cookie").map_or(Vec::new(), |header| {
-			header
-				.to_str()
-				.unwrap_or_default()
-				.split("; ")
-				.map(|cookie| Cookie::parse(cookie).unwrap_or_else(|_| Cookie::from("")))
-				.collect()
-		})
+		parse_cookies(self.headers())
 	}
 
 	fn insert_cookie(&mut self, cookie: Cookie<'_>) {
@@ -266,18 +271,18 @@ impl ResponseExt for Response<Body> {
 }
 
 impl Route<'_> {
-	fn method(&mut self, method: &Method, dest: fn(Request<Body>) -> BoxResponse) -> &mut Self {
+	fn method(&mut self, method: &Method, dest: Handler) -> &mut Self {
 		self.router.add(&format!("/{}{}", method.as_str(), self.path), dest);
 		self
 	}
 
 	/// Add an endpoint for `GET` requests
-	pub fn get(&mut self, dest: fn(Request<Body>) -> BoxResponse) -> &mut Self {
+	pub fn get(&mut self, dest: Handler) -> &mut Self {
 		self.method(&Method::GET, dest)
 	}
 
 	/// Add an endpoint for `POST` requests
-	pub fn post(&mut self, dest: fn(Request<Body>) -> BoxResponse) -> &mut Self {
+	pub fn post(&mut self, dest: Handler) -> &mut Self {
 		self.method(&Method::POST, dest)
 	}
 }
@@ -304,108 +309,21 @@ impl Server {
 	}
 
 	pub fn listen(self, addr: &str) -> Boxed<Result<(), hyper::Error>> {
+		// Shared by every connection. Cloning the `Router` per connection would
+		// deep-copy the whole route table on each TCP accept.
+		let state = Arc::new(ServerState {
+			router: self.router,
+			default_headers: self.default_headers,
+			// CONFIG is immutable after startup, so read these once rather than per request.
+			block_bots: config::get_setting("REDLIB_ROBOTS_DISABLE_INDEXING").is_some_and(|val| val == "on"),
+			real_ip_header: real_ip_header(),
+		});
+
 		let make_svc = make_service_fn(move |_conn| {
-			// For correct borrowing, these values need to be borrowed
-			let router = self.router.clone();
-			let default_headers = self.default_headers.clone();
+			let state = Arc::clone(&state);
 
 			// This is the `Service` that will handle the connection.
-			// `service_fn` is a helper to convert a function that
-			// returns a Response into a `Service`.
-			// let shared_router = router.clone();
-			async move {
-				Ok::<_, String>(service_fn(move |req: Request<Body>| {
-					let req_headers = req.headers().clone();
-					let def_headers = default_headers.clone();
-
-					// Catch robots.txt-disrespecful bots who still identify themselves
-					// Typically justified as "human triggered" actions.
-					if match config::get_setting("REDLIB_ROBOTS_DISABLE_INDEXING") {
-						Some(val) => val == "on",
-						None => false,
-					} {
-						if let Some(user_agent) = req_headers.get("user-agent") {
-							if let Ok(user_agent_str) = user_agent.to_str() {
-								for banned in BANNED_USER_AGENTS {
-									if user_agent_str.contains(banned) {
-										return new_boilerplate(def_headers, req_headers, 403, Body::from("Forbidden")).boxed();
-									}
-								}
-							}
-						}
-					}
-
-					// Track active users by IP
-					let ip = req_headers
-						.get("x-forwarded-for")
-						.and_then(|v| v.to_str().ok())
-						.map(|s| s.split(',').next().unwrap_or("").trim())
-						.or_else(|| req_headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
-						.unwrap_or("unknown");
-					register_active_user(ip);
-
-					// Remove double slashes and decode encoded slashes
-					let mut path = req.uri().path().replace("//", "/").replace("%2F", "/");
-
-					// Remove trailing slashes
-					if path != "/" && path.ends_with('/') {
-						path.pop();
-					}
-
-					// Replace HEAD with GET for routing
-					let (method, is_head) = match req.method() {
-						&Method::HEAD => (&Method::GET, true),
-						method => (method, false),
-					};
-
-					// Server-side analytics for HTML navigations only.
-					if method == Method::GET {
-						let accept_html = req_headers.get("accept").and_then(|v| v.to_str().ok()).map(|v| v.contains("text/html")).unwrap_or(false);
-
-						if accept_html {
-							let ua = req_headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
-							let host = req_headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
-							let referrer = req_headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
-							let ip_owned = ip.to_owned();
-							let path_for_event = path.clone();
-
-							tokio::spawn(async move {
-								ANALYTICS.capture_pageview(&path_for_event, &ua, &ip_owned, &host, &referrer).await;
-							});
-						}
-					}
-
-					// Match the visited path with an added route
-					match router.recognize(&format!("/{}{}", method.as_str(), path)) {
-						// If a route was configured for this path
-						Ok(found) => {
-							let mut parammed = req;
-							parammed.set_params(found.params().clone());
-
-							// Run the route's function
-							let func = (found.handler().to_owned().to_owned())(parammed);
-							async move {
-								match func.await {
-									Ok(mut res) => {
-										res.headers_mut().extend(def_headers);
-										if is_head {
-											*res.body_mut() = Body::empty();
-										} else {
-											let _ = compress_response(&req_headers, &mut res).await;
-										}
-
-										Ok(res)
-									}
-									Err(msg) => new_boilerplate(def_headers, req_headers, 500, if is_head { Body::empty() } else { Body::from(msg) }).await,
-								}
-							}
-							.boxed()
-						}
-						// If there was a routing error
-						Err(e) => new_boilerplate(def_headers, req_headers, 404, if is_head { Body::empty() } else { e.into() }).boxed(),
-					}
-				}))
-			}
+			async move { Ok::<_, String>(service_fn(move |req| handle(req, Arc::clone(&state)))) }
 		});
 
 		// Build SocketAddr from provided address
@@ -432,23 +350,143 @@ impl Server {
 	}
 }
 
-/// Create a boilerplate Response for error conditions. This response will be
-/// compressed if requested by client.
-async fn new_boilerplate(
-	default_headers: HeaderMap<header::HeaderValue>,
-	req_headers: HeaderMap<header::HeaderValue>,
-	status: u16,
-	body: Body,
-) -> Result<Response<Body>, String> {
-	match Response::builder().status(status).body(body) {
-		Ok(mut res) => {
-			let _ = compress_response(&req_headers, &mut res).await;
+/// Everything `handle` needs that is fixed once the server starts.
+struct ServerState {
+	router: Router<Handler>,
+	default_headers: HeaderMap,
+	block_bots: bool,
+	real_ip_header: Option<header::HeaderName>,
+}
 
+/// Reads `REDLIB_REAL_IP_HEADER`. An empty or invalid value means "not set".
+fn real_ip_header() -> Option<header::HeaderName> {
+	let name = config::get_setting("REDLIB_REAL_IP_HEADER").filter(|name| !name.trim().is_empty())?;
+	match header::HeaderName::from_bytes(name.trim().as_bytes()) {
+		Ok(name) => Some(name),
+		Err(_) => {
+			log::warn!("Ignoring REDLIB_REAL_IP_HEADER: {name:?} is not a valid header name");
+			None
+		}
+	}
+}
+
+/// Picks the visitor's IP from the request headers.
+///
+/// With `REDLIB_REAL_IP_HEADER` set (e.g. `CF-Connecting-IP` behind Cloudflare),
+/// only that header is trusted. Otherwise this falls back to the first
+/// `X-Forwarded-For` entry, then `X-Real-IP`. A client can forge both unless a
+/// proxy in front overwrites them.
+fn client_ip<'a>(headers: &'a HeaderMap, real_ip_header: Option<&header::HeaderName>) -> Option<&'a str> {
+	let ip = match real_ip_header {
+		Some(name) => headers.get(name).and_then(|v| v.to_str().ok()),
+		None => headers
+			.get("x-forwarded-for")
+			.and_then(|v| v.to_str().ok())
+			.and_then(|s| s.split(',').next())
+			.or_else(|| headers.get("x-real-ip").and_then(|v| v.to_str().ok())),
+	};
+	ip.map(str::trim).filter(|ip| !ip.is_empty())
+}
+
+/// Route one request, then apply the default headers and compression.
+async fn handle(mut req: Request<Body>, state: Arc<ServerState>) -> Result<Response<Body>, String> {
+	let ServerState {
+		router,
+		default_headers,
+		block_bots,
+		real_ip_header,
+	} = &*state;
+
+	// Only Accept-Encoding is needed once `req` moves into the route handler,
+	// so keep that one value (a refcount bump) rather than cloning every header.
+	let accept_encoding = req.headers().get(header::ACCEPT_ENCODING).cloned();
+	let accept_encoding = accept_encoding.as_ref();
+
+	// Every borrow of `req` below (headers, ip, method) must end before `req`
+	// is moved into the route handler. They all feed synchronous code that runs
+	// first, so the move further down type-checks.
+	let req_headers = req.headers();
+
+	// Catch robots.txt-disrespecful bots who still identify themselves
+	// Typically justified as "human triggered" actions.
+	if *block_bots {
+		let user_agent = req_headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or_default();
+		if BANNED_USER_AGENTS.iter().any(|banned| user_agent.contains(banned)) {
+			return new_boilerplate(default_headers, accept_encoding, 403, Body::from("Forbidden")).await;
+		}
+	}
+
+	// Track active users by IP. Requests with no client IP, such as kubelet
+	// probes, aren't visitors and would otherwise all count as one "unknown" user.
+	let ip = client_ip(req_headers, real_ip_header.as_ref());
+	if let Some(ip) = ip {
+		register_active_user(ip);
+	}
+
+	// Remove double slashes and decode encoded slashes
+	let mut path = req.uri().path().replace("//", "/").replace("%2F", "/");
+
+	// Remove trailing slashes
+	if path != "/" && path.ends_with('/') {
+		path.pop();
+	}
+
+	// Replace HEAD with GET for routing
+	let (method, is_head) = match req.method() {
+		&Method::HEAD => (&Method::GET, true),
+		method => (method, false),
+	};
+
+	// Server-side analytics for HTML navigations only.
+	// Checked first so the strings and the task are skipped when pageviews are off.
+	if method == Method::GET && ANALYTICS.captures_pageviews() {
+		let accept_html = req_headers.get("accept").and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("text/html"));
+
+		if accept_html {
+			let ua = req_headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+			let host = req_headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+			let referrer = req_headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+			let ip_owned = ip.unwrap_or("unknown").to_owned();
+			let path_for_event = path.clone();
+
+			tokio::spawn(async move {
+				ANALYTICS.capture_pageview(&path_for_event, &ua, &ip_owned, &host, &referrer).await;
+			});
+		}
+	}
+
+	// Match the visited path with an added route
+	let found = match router.recognize(&format!("/{}{}", method.as_str(), path)) {
+		Ok(found) => found,
+		// If there was a routing error
+		Err(e) => return new_boilerplate(default_headers, accept_encoding, 404, if is_head { Body::empty() } else { e.into() }).await,
+	};
+
+	// Run the route's function
+	req.set_params(found.params().clone());
+	match (**found.handler())(req).await {
+		Ok(mut res) => {
 			res.headers_mut().extend(default_headers.clone());
+			if is_head {
+				*res.body_mut() = Body::empty();
+			} else {
+				let _ = compress_response(accept_encoding, &mut res).await;
+			}
+
 			Ok(res)
 		}
-		Err(msg) => Err(msg.to_string()),
+		Err(msg) => new_boilerplate(default_headers, accept_encoding, 500, if is_head { Body::empty() } else { Body::from(msg) }).await,
 	}
+}
+
+/// Create a boilerplate Response for error conditions. This response will be
+/// compressed if requested by client.
+async fn new_boilerplate(default_headers: &HeaderMap, accept_encoding: Option<&header::HeaderValue>, status: u16, body: Body) -> Result<Response<Body>, String> {
+	let mut res = Response::builder().status(status).body(body).map_err(|e| e.to_string())?;
+	let _ = compress_response(accept_encoding, &mut res).await;
+
+	res.headers_mut().extend(default_headers.clone());
+	Ok(res)
 }
 
 /// Determines the desired compressor based on the Accept-Encoding header.
@@ -466,8 +504,10 @@ async fn new_boilerplate(
 /// Accept-Encoding: gzip, compress, br
 /// Accept-Encoding: br;q=1.0, gzip;q=0.8, *;q=0.1
 /// ```
-#[cached]
-fn determine_compressor(accept_encoding: String) -> Option<CompressionType> {
+///
+/// Deliberately not `#[cached]`: the input is client-controlled, so a cache
+/// keyed on it grows without bound, and the parse is cheaper than a lookup.
+fn determine_compressor(accept_encoding: &str) -> Option<CompressionType> {
 	if accept_encoding.is_empty() {
 		return None;
 	};
@@ -613,7 +653,7 @@ fn determine_compressor(accept_encoding: String) -> Option<CompressionType> {
 /// conditions are met:
 ///
 /// 1. the HTTP client requests a compression encoding in the Content-Encoding
-///    header (hence the need for the `req_headers`);
+///    header (hence the need for `accept_encoding`);
 ///
 /// 2. the content encoding corresponds to a compression algorithm we support;
 ///
@@ -622,17 +662,16 @@ fn determine_compressor(accept_encoding: String) -> Option<CompressionType> {
 ///
 /// `compress_response` returns Ok on successful compression, or if not all three
 /// conditions above are met. It returns Err if there was a problem decoding
-/// any header in either `req_headers` or res, but res will remain intact.
+/// a header, or if compression itself fails; in that case res keeps its
+/// original, uncompressed body.
 ///
 /// This function logs errors to stderr, but only in debug mode. No information
 /// is logged in release builds.
-async fn compress_response(req_headers: &HeaderMap<header::HeaderValue>, res: &mut Response<Body>) -> Result<(), String> {
+async fn compress_response(accept_encoding: Option<&header::HeaderValue>, res: &mut Response<Body>) -> Result<(), String> {
 	// Check if the data is eligible for compression.
 	if let Some(hdr) = res.headers().get(header::CONTENT_TYPE) {
 		match from_utf8(hdr.as_bytes()) {
-			Ok(val) => {
-				let s = val.to_string();
-
+			Ok(s) => {
 				// TODO: better determination of what is eligible for compression
 				if !(s.starts_with("text/") || s.starts_with("application/json")) {
 					return Ok(());
@@ -657,10 +696,10 @@ async fn compress_response(req_headers: &HeaderMap<header::HeaderValue>, res: &m
 	};
 
 	// Check to see which compressor is requested, and if we can use it.
-	let accept_encoding: String = match req_headers.get(header::ACCEPT_ENCODING) {
+	let accept_encoding: &str = match accept_encoding {
 		None => return Ok(()), // Client requested no compression.
 
-		Some(hdr) => match String::from_utf8(hdr.as_bytes().into()) {
+		Some(hdr) => match from_utf8(hdr.as_bytes()) {
 			Ok(val) => val,
 
 			#[cfg(debug_assertions)]
@@ -680,32 +719,44 @@ async fn compress_response(req_headers: &HeaderMap<header::HeaderValue>, res: &m
 	};
 
 	// Get the body from the response.
-	let body_bytes: Vec<u8> = match body::to_bytes(res.body_mut()).await {
-		Ok(b) => b.to_vec(),
+	let body_bytes = match body::to_bytes(res.body_mut()).await {
+		Ok(b) => b,
 		Err(e) => {
 			dbg_msg!(e);
 			return Err(e.to_string());
 		}
 	};
 
-	// Compress!
-	match compress_body(compressor, body_bytes) {
+	// Compress! This is CPU-bound (brotli at its default quality especially),
+	// so run it on the blocking pool instead of stalling a runtime worker.
+	let input = body_bytes.to_vec();
+	let compressed = tokio::task::spawn_blocking(move || compress_body(compressor, input))
+		.await
+		.map_err(|e| e.to_string())
+		.and_then(|res| res);
+
+	match compressed {
 		Ok(compressed) => {
 			// We get here iff the compression was successful. Replace the body
 			// with the compressed payload, and add the appropriate
 			// Content-Encoding header in the response. Remove any precomputed
 			// Content-Length, as it will no longer be valid.
 			let headers = res.headers_mut();
-			headers.insert(header::CONTENT_ENCODING, compressor.to_string().parse().unwrap());
+			headers.insert(header::CONTENT_ENCODING, header::HeaderValue::from_static(compressor.as_str()));
 			headers.remove(header::CONTENT_LENGTH);
 
 			*(res.body_mut()) = Body::from(compressed);
+			Ok(())
 		}
 
-		Err(e) => return Err(e),
+		Err(e) => {
+			// `to_bytes` drained the body. Put it back so the client still
+			// gets the uncompressed response instead of an empty one.
+			dbg_msg!(e);
+			*(res.body_mut()) = Body::from(body_bytes);
+			Err(e)
+		}
 	}
-
-	Ok(())
 }
 
 /// Compresses a `Vec<u8>` given a [`CompressionType`].
@@ -749,9 +800,13 @@ fn compress_body(compressor: CompressionType, body_bytes: Vec<u8>) -> Result<Vec
 		}
 
 		CompressionType::Brotli => {
-			// We may want to make the compression parameters configurable
-			// in the future. For now, the defaults are sufficient.
-			let brotli_params = BrotliEncoderParams::default();
+			// Quality 5 instead of the default 11: on a 220 KB subreddit page,
+			// 11 took ~165 ms of CPU against ~4 ms for 5, for output only ~15%
+			// smaller (33.5 KB vs 38.7 KB). Still beats gzip -6 (41.8 KB).
+			let brotli_params = BrotliEncoderParams {
+				quality: BROTLI_QUALITY,
+				..BrotliEncoderParams::default()
+			};
 
 			let mut compressed = Vec::<u8>::new();
 			match BrotliCompress(&mut reader, &mut compressed, &brotli_params) {
@@ -778,29 +833,52 @@ fn compress_body(compressor: CompressionType, body_bytes: Vec<u8>) -> Result<Vec
 mod tests {
 	use super::*;
 	use brotli::Decompressor as BrotliDecompressor;
-	use futures_lite::future::block_on;
 	use lipsum::lipsum;
 	use std::{boxed::Box, io};
 
 	#[test]
-	fn test_determine_compressor() {
-		// Single compressor given.
-		assert_eq!(determine_compressor("unsupported".to_string()), None);
-		assert_eq!(determine_compressor("gzip".to_string()), Some(CompressionType::Gzip));
-		assert_eq!(determine_compressor("*".to_string()), Some(DEFAULT_COMPRESSOR));
+	fn test_client_ip() {
+		let cf = header::HeaderName::from_static("cf-connecting-ip");
+		let headers = |pairs: &[(&'static str, &'static str)]| {
+			let mut map = HeaderMap::new();
+			for (name, value) in pairs {
+				map.insert(*name, header::HeaderValue::from_static(value));
+			}
+			map
+		};
 
-		// Multiple compressors.
-		assert_eq!(determine_compressor("gzip, br".to_string()), Some(CompressionType::Brotli));
-		assert_eq!(determine_compressor("gzip;q=0.8, br;q=0.3".to_string()), Some(CompressionType::Gzip));
-		assert_eq!(determine_compressor("br, gzip".to_string()), Some(CompressionType::Brotli));
-		assert_eq!(determine_compressor("br;q=0.3, gzip;q=0.4".to_string()), Some(CompressionType::Gzip));
+		// Behind Cloudflare: a client-forged X-Forwarded-For is ignored.
+		let forged = headers(&[("x-forwarded-for", "6.6.6.6, 203.0.113.7"), ("cf-connecting-ip", "203.0.113.7")]);
+		assert_eq!(client_ip(&forged, Some(&cf)), Some("203.0.113.7"));
+		// With the trusted header configured but missing (e.g. a kubelet probe), there is no IP.
+		assert_eq!(client_ip(&headers(&[("x-forwarded-for", "6.6.6.6")]), Some(&cf)), None);
 
-		// Invalid q-values.
-		assert_eq!(determine_compressor("gzip;q=NAN".to_string()), None);
+		// Default: first X-Forwarded-For entry, then X-Real-IP.
+		assert_eq!(client_ip(&forged, None), Some("6.6.6.6"));
+		assert_eq!(client_ip(&headers(&[("x-real-ip", " 198.51.100.2 ")]), None), Some("198.51.100.2"));
+		assert_eq!(client_ip(&headers(&[("x-forwarded-for", " , 1.2.3.4")]), None), None);
+		assert_eq!(client_ip(&HeaderMap::new(), None), None);
 	}
 
 	#[test]
-	fn test_compress_response() {
+	fn test_determine_compressor() {
+		// Single compressor given.
+		assert_eq!(determine_compressor("unsupported"), None);
+		assert_eq!(determine_compressor("gzip"), Some(CompressionType::Gzip));
+		assert_eq!(determine_compressor("*"), Some(DEFAULT_COMPRESSOR));
+
+		// Multiple compressors.
+		assert_eq!(determine_compressor("gzip, br"), Some(CompressionType::Brotli));
+		assert_eq!(determine_compressor("gzip;q=0.8, br;q=0.3"), Some(CompressionType::Gzip));
+		assert_eq!(determine_compressor("br, gzip"), Some(CompressionType::Brotli));
+		assert_eq!(determine_compressor("br;q=0.3, gzip;q=0.4"), Some(CompressionType::Gzip));
+
+		// Invalid q-values.
+		assert_eq!(determine_compressor("gzip;q=NAN"), None);
+	}
+
+	#[tokio::test]
+	async fn test_compress_response() {
 		// This macro generates an Accept-Encoding header value given any number of
 		// compressors.
 		macro_rules! ae_gen {
@@ -821,14 +899,13 @@ mod tests {
 		] {
 			// Determine what the expected encoding should be based on both the
 			// specific encodings we accept.
-			let expected_encoding: CompressionType = match determine_compressor(accept_encoding.to_string()) {
+			let expected_encoding: CompressionType = match determine_compressor(accept_encoding) {
 				Some(s) => s,
-				None => panic!("determine_compressor(accept_encoding.to_string()) => None"),
+				None => panic!("determine_compressor(accept_encoding) => None"),
 			};
 
-			// Build headers with our Accept-Encoding.
-			let mut req_headers = HeaderMap::new();
-			req_headers.insert(header::ACCEPT_ENCODING, header::HeaderValue::from_str(accept_encoding).unwrap());
+			// Build our Accept-Encoding header.
+			let accept_encoding_hdr = header::HeaderValue::from_str(accept_encoding).unwrap();
 
 			// Build test response.
 			let lorem_ipsum: String = lipsum(10000);
@@ -840,8 +917,8 @@ mod tests {
 				.unwrap();
 
 			// Perform the compression.
-			if let Err(e) = block_on(compress_response(&req_headers, &mut res)) {
-				panic!("compress_response(&req_headers, &mut res) => Err(\"{e}\")");
+			if let Err(e) = compress_response(Some(&accept_encoding_hdr), &mut res).await {
+				panic!("compress_response(Some(&accept_encoding_hdr), &mut res) => Err(\"{e}\")");
 			};
 
 			// If the content was compressed, we expect the Content-Encoding
@@ -861,7 +938,7 @@ mod tests {
 			//
 			// In the case of no compression, just make sure the "new" body in
 			// the Response is the same as what with which we start.
-			let body_vec = match block_on(body::to_bytes(res.body_mut())) {
+			let body_vec = match body::to_bytes(res.body_mut()).await {
 				Ok(b) => b.to_vec(),
 				Err(e) => panic!("{e}"),
 			};

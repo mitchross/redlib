@@ -80,8 +80,14 @@ impl Analytics {
 		}
 	}
 
+	/// Whether `capture_pageview` would send anything. Lets callers skip
+	/// building and spawning the event when it would be a no-op.
+	pub fn captures_pageviews(&self) -> bool {
+		self.enabled && self.server_pageviews && !self.api_key.is_empty() && !self.host.is_empty()
+	}
+
 	pub async fn capture_pageview(&self, path: &str, user_agent: &str, ip: &str, host: &str, referrer: &str) {
-		if !self.enabled || !self.server_pageviews || self.api_key.is_empty() || self.host.is_empty() {
+		if !self.captures_pageviews() {
 			return;
 		}
 
