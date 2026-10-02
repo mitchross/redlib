@@ -432,6 +432,7 @@ Assign a default value for each instance-specific setting by passing environment
 | `SFW_ONLY`                | `["on", "off"]` | `off`                  | Enables SFW-only mode for the instance, i.e. all NSFW content is filtered.                                |
 | `BANNER`                  | String          | (empty)                | Allows the server to set a banner to be displayed. Currently this is displayed on the instance info page. |
 | `ROBOTS_DISABLE_INDEXING` | `["on", "off"]` | `off`                  | Disables indexing of the instance by search engines.                                                      |
+| `REAL_IP_HEADER`          | Header name     | (empty)                | Header holding the visitor's IP, set by your proxy (e.g. `CF-Connecting-IP` behind Cloudflare). When set, only this header is trusted. When empty, Redlib uses the first `X-Forwarded-For` entry, then `X-Real-IP`, which clients can forge. |
 | `PUSHSHIFT_FRONTEND`      | String          | `undelete.pullpush.io` | Allows the server to set the Pushshift frontend to be used with "removed" links.                          |
 | `PORT`                    | Integer 0-65535 | `8080`                 | The **internal** port Redlib listens on.                                                                  |
 | `ENABLE_RSS`              | `["on", "off"]` | `off`                  | Enables RSS feed generation.                                                                              |

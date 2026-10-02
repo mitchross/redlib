@@ -5,8 +5,7 @@ use crate::utils::{format_url, Post};
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
 use futures_lite::future::block_on;
-use futures_lite::{future::Boxed, FutureExt};
-use hyper::{body::Buf, header, Body, Request as HyperRequest, Response as HyperResponse};
+use hyper::{header, Body, Request as HyperRequest, Response as HyperResponse};
 use log::{error, info, trace, warn};
 use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
@@ -86,7 +85,6 @@ pub fn build_client() -> WreqClient {
 /// `Location` header. An `Err(String)` is returned if Reddit responds with a
 /// 429, or if we were unable to decode the value in the `Location` header.
 #[cached(size = 1024, time = 600, result = true)]
-#[async_recursion::async_recursion]
 pub async fn canonical_path(path: String, tries: i8) -> Result<Option<String>, String> {
 	if tries == 0 {
 		return Ok(None);
@@ -135,8 +133,8 @@ pub async fn canonical_path(path: String, tries: i8) -> Result<Option<String>, S
 				// Otherwise, it will literally redirect to Reddit.com.
 				let uri = format_url(stripped_uri);
 
-				// Decrement tries and try again
-				canonical_path(uri, tries - 1).await
+				// Decrement tries and try again. Boxed because the future is recursive.
+				Box::pin(canonical_path(uri, tries - 1)).await
 			}
 			None => Ok(None),
 		},
@@ -218,111 +216,90 @@ pub async fn proxy(req: HyperRequest<Body>, format: &str) -> Result<HyperRespons
 
 /// Makes a GET request to Reddit at `path`. By default, this will honor HTTP
 /// 3xx codes Reddit returns and will automatically redirect.
-fn reddit_get(path: String, quarantine: bool) -> Boxed<Result<WreqResponse, String>> {
-	request(&Method::GET, path, true, quarantine, REDDIT_URL_BASE, REDDIT_URL_BASE_HOST)
+async fn reddit_get(path: String, quarantine: bool) -> Result<WreqResponse, String> {
+	request(&Method::GET, path, true, quarantine, REDDIT_URL_BASE, REDDIT_URL_BASE_HOST).await
 }
 
 /// Makes a HEAD request to Reddit at `path, using the short URL base. This will not follow redirects.
-fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
-	request(&Method::HEAD, path, false, quarantine, base_path, host)
+async fn reddit_short_head(path: String, quarantine: bool, base_path: &'static str, host: &'static str) -> Result<WreqResponse, String> {
+	request(&Method::HEAD, path, false, quarantine, base_path, host).await
 }
 
-// /// Makes a HEAD request to Reddit at `path`. This will not follow redirects.
-// fn reddit_head(path: String, quarantine: bool) -> Boxed<Result<Response<Body>, String>> {
-// 	request(&Method::HEAD, path, false, quarantine, false)
-// }
-// Unused - reddit_head is only ever called in the context of a short URL
+/// Opts in to quarantined and gated subreddits.
+const QUARANTINE_COOKIE: &str = "_options=%7B%22pref_quarantine_optin%22%3A%20true%2C%20%22pref_gated_sr_optin%22%3A%20true%7D";
 
-/// Makes a request to Reddit. If `redirect` is `true`, `request_with_redirect`
-/// will recurse on the URL that Reddit provides in the Location HTTP header
-/// in its response.
-fn request(method: &'static Method, path: String, redirect: bool, quarantine: bool, base_path: &'static str, host: &'static str) -> Boxed<Result<WreqResponse, String>> {
+/// Most redirects `request` follows for one call, so a redirect loop errors out instead of spinning forever.
+const MAX_REDIRECTS: u8 = 5;
+
+/// Makes a request to Reddit. If `redirect` is `true`, follows the URL that
+/// Reddit provides in the Location HTTP header, up to `MAX_REDIRECTS` times.
+async fn request(method: &'static Method, mut path: String, redirect: bool, quarantine: bool, base_path: &'static str, host: &'static str) -> Result<WreqResponse, String> {
+	let mut redirects = 0;
+
+	loop {
+		let response = send(method, &path, quarantine, base_path, host).await?;
+
+		// Reddit may respond with a 3xx. Decide whether or not to
+		// redirect based on caller params.
+		if !(redirect && response.status().is_redirection()) {
+			return Ok(response);
+		}
+		if redirects == MAX_REDIRECTS {
+			return Err("Reddit redirected too many times".to_string());
+		}
+		redirects += 1;
+
+		let location_header = response.headers().get(wreq::header::LOCATION);
+		if location_header.and_then(|h| h.to_str().ok()) == Some(ALTERNATIVE_REDDIT_URL_BASE) {
+			return Err("Reddit response was invalid".to_string());
+		}
+		path = location_header
+			.map(|val| {
+				// We need to make adjustments to the URI
+				// we get back from Reddit. Namely, we
+				// must:
+				//
+				//     1. Remove the authority (e.g.
+				//     https://www.reddit.com) that may be
+				//     present, so that we follow the
+				//     path (and query parameters) as
+				//     required.
+				//
+				//     2. Percent-encode the path.
+				let new_path = percent_encode(val.as_bytes(), CONTROLS)
+					.to_string()
+					.trim_start_matches(REDDIT_URL_BASE)
+					.trim_start_matches(ALTERNATIVE_REDDIT_URL_BASE)
+					.to_string();
+				format!("{new_path}{}raw_json=1", if new_path.contains('?') { "&" } else { "?" })
+			})
+			.unwrap_or_default();
+	}
+}
+
+/// Sends a single request to Reddit at `path`, without following redirects.
+async fn send(method: &'static Method, path: &str, quarantine: bool, base_path: &str, host: &str) -> Result<WreqResponse, String> {
 	// Build Reddit URL from path.
 	let url = format!("{base_path}{path}");
+	let cookie = if quarantine { QUARANTINE_COOKIE } else { "" };
 
-	let mut headers: Vec<(String, String)> = vec![
-		("Host".into(), host.into()),
-		(
-			"Cookie".into(),
-			if quarantine {
-				"_options=%7B%22pref_quarantine_optin%22%3A%20true%2C%20%22pref_gated_sr_optin%22%3A%20true%7D".into()
-			} else {
-				"".into()
-			},
-		),
-	];
-
-	{
-		let client = OAUTH_CLIENT.load_full();
-		for (key, value) in client.headers_map.clone() {
-			headers.push((key, value));
-		}
-	}
+	// Borrow the headers instead of copying them; the builder copies each one in.
+	let client = OAUTH_CLIENT.load_full();
+	let mut headers: Vec<(&str, &str)> = vec![("Host", host), ("Cookie", cookie)];
+	headers.extend(client.headers_map.iter().map(|(key, value)| (key.as_str(), value.as_str())));
 
 	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
 	fastrand::shuffle(&mut headers);
 
 	let mut builder = CLIENT.request(method.clone(), &url);
-
 	for (key, value) in headers {
 		builder = builder.header(key, value);
 	}
 
-	async move {
-		match builder.send().await {
-			Ok(response) => {
-				// Reddit may respond with a 3xx. Decide whether or not to
-				// redirect based on caller params.
-				if response.status().is_redirection() {
-					if !redirect {
-						return Ok(response);
-					};
-					let location_header = response.headers().get(wreq::header::LOCATION);
-					if location_header.and_then(|h| h.to_str().ok()) == Some(ALTERNATIVE_REDDIT_URL_BASE) {
-						return Err("Reddit response was invalid".to_string());
-					}
-					return request(
-						method,
-						location_header
-							.map(|val| {
-								// We need to make adjustments to the URI
-								// we get back from Reddit. Namely, we
-								// must:
-								//
-								//     1. Remove the authority (e.g.
-								//     https://www.reddit.com) that may be
-								//     present, so that we recurse on the
-								//     path (and query parameters) as
-								//     required.
-								//
-								//     2. Percent-encode the path.
-								let new_path = percent_encode(val.as_bytes(), CONTROLS)
-									.to_string()
-									.trim_start_matches(REDDIT_URL_BASE)
-									.trim_start_matches(ALTERNATIVE_REDDIT_URL_BASE)
-									.to_string();
-								format!("{new_path}{}raw_json=1", if new_path.contains('?') { "&" } else { "?" })
-							})
-							.unwrap_or_default()
-							.to_string(),
-						true,
-						quarantine,
-						base_path,
-						host,
-					)
-					.await;
-				};
-
-				Ok(response)
-			}
-			Err(e) => {
-				dbg_msg!("{method} {REDDIT_URL_BASE}{path}: {}", e);
-
-				Err(e.to_string())
-			}
-		}
-	}
-	.boxed()
+	builder.send().await.map_err(|e| {
+		dbg_msg!("{method} {REDDIT_URL_BASE}{path}: {}", e);
+		e.to_string()
+	})
 }
 
 /// Make a request to a Reddit API and parse the JSON response
@@ -341,7 +318,17 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 		warn!("Rate limit {current_rate_limit} is low. Spawning force_refresh_token()");
 		tokio::spawn(force_refresh_token());
 	}
-	OAUTH_RATELIMIT_REMAINING.fetch_sub(1, Ordering::SeqCst);
+	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
+	// above until Reddit's next rate-limit header resets the count.
+	// (A plain CAS loop: `fetch_update` is deprecated on newer Rust, and its
+	// replacement `try_update` isn't available at our MSRV.)
+	let mut remaining = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
+	while remaining > 0 {
+		match OAUTH_RATELIMIT_REMAINING.compare_exchange_weak(remaining, remaining - 1, Ordering::SeqCst, Ordering::SeqCst) {
+			Ok(_) => break,
+			Err(actual) => remaining = actual,
+		}
+	}
 
 	// Fetch the url...
 	match reddit_get(path.clone(), quarantine).await {
@@ -368,12 +355,10 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 				None
 			};
 
-			// asynchronously aggregate the chunks of the body
-			match hyper::body::aggregate(response.into_hyper_response()).await {
+			// Read the whole body straight from wreq; no detour through a hyper Response.
+			match response.bytes().await {
 				Ok(body) => {
-					let has_remaining = body.has_remaining();
-
-					if !has_remaining {
+					if body.is_empty() {
 						// Rate limited, so spawn a force_refresh_token()
 						tokio::spawn(force_refresh_token());
 						return match reset {
@@ -386,10 +371,8 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 					}
 
 					// Parse the response from Reddit as JSON
-					match serde_json::from_reader(body.reader()) {
-						Ok(value) => {
-							let json: Value = value;
-
+					match serde_json::from_slice::<Value>(&body) {
+						Ok(json) => {
 							// If user is suspended
 							if let Some(data) = json.get("data") {
 								if let Some(is_suspended) = data.get("is_suspended").and_then(Value::as_bool) {

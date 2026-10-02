@@ -96,6 +96,9 @@ pub struct Config {
 	#[serde(alias = "LIBREDDIT_ROBOTS_DISABLE_INDEXING")]
 	pub(crate) robots_disable_indexing: Option<String>,
 
+	#[serde(rename = "REDLIB_REAL_IP_HEADER")]
+	pub(crate) real_ip_header: Option<String>,
+
 	#[serde(rename = "REDLIB_PUSHSHIFT_FRONTEND")]
 	#[serde(alias = "LIBREDDIT_PUSHSHIFT_FRONTEND")]
 	pub(crate) pushshift: Option<String>,
@@ -158,6 +161,7 @@ impl Config {
 			default_disable_visit_reddit_confirmation: parse("REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION"),
 			banner: parse("REDLIB_BANNER"),
 			robots_disable_indexing: parse("REDLIB_ROBOTS_DISABLE_INDEXING"),
+			real_ip_header: parse("REDLIB_REAL_IP_HEADER"),
 			pushshift: parse("REDLIB_PUSHSHIFT_FRONTEND"),
 			enable_rss: parse("REDLIB_ENABLE_RSS"),
 			full_url: parse("REDLIB_FULL_URL"),
@@ -190,6 +194,7 @@ fn get_setting_from_config(name: &str, config: &Config) -> Option<String> {
 		"REDLIB_DEFAULT_DISABLE_VISIT_REDDIT_CONFIRMATION" => config.default_disable_visit_reddit_confirmation.clone(),
 		"REDLIB_BANNER" => config.banner.clone(),
 		"REDLIB_ROBOTS_DISABLE_INDEXING" => config.robots_disable_indexing.clone(),
+		"REDLIB_REAL_IP_HEADER" => config.real_ip_header.clone(),
 		"REDLIB_PUSHSHIFT_FRONTEND" => config.pushshift.clone(),
 		"REDLIB_ENABLE_RSS" => config.enable_rss.clone(),
 		"REDLIB_FULL_URL" => config.full_url.clone(),

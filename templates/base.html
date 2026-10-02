@@ -33,42 +33,11 @@
 		{% endblock %}
 		{% if crate::analytics::ANALYTICS.enabled && !crate::analytics::ANALYTICS.client_host.is_empty() %}
 		<script data-cfasync="false" src="{{ crate::analytics::ANALYTICS.client_host }}/static/array.full.js" crossorigin="anonymous"></script>
-		<script data-cfasync="false">
-		{% if crate::analytics::ANALYTICS.sample_rate < 1.0 || crate::analytics::ANALYTICS.replay_sample_rate < 1.0 %}
-		// Same visitor -> same bucket in [0, 1), so a visitor is always in or out of a sample.
-		function redlibBucket(id) {
-			var h = 2166136261;
-			id = String(id || '');
-			for (var i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
-			return h / 4294967295;
-		}
-		{% endif %}
-		posthog.init('{{ crate::analytics::ANALYTICS.api_key }}', {
-			api_host: '{{ crate::analytics::ANALYTICS.client_host }}',
-			person_profiles: 'always',
-			autocapture: false,
-			{% if crate::analytics::ANALYTICS.replay_sample_rate < 1.0 %}
-			disable_session_recording: true,
-			{% else %}
-			disable_session_recording: false,
-			{% endif %}
-			{% if crate::analytics::ANALYTICS.sample_rate < 1.0 %}
-			// Session replay ($snapshot) is gated in `loaded` instead; other events keep a fixed share of visitors.
-			before_send: function(e) {
-				if (!e || e.event === '$snapshot') return e;
-				if (redlibBucket(e.properties && e.properties.distinct_id) >= {{ crate::analytics::ANALYTICS.sample_rate }}) return null;
-				e.properties.sample_rate = {{ crate::analytics::ANALYTICS.sample_rate }};
-				return e;
-			},
-			{% endif %}
-			loaded: function(ph) {
-				{% if crate::analytics::ANALYTICS.replay_sample_rate < 1.0 %}
-				if (redlibBucket(ph.get_distinct_id()) >= {{ crate::analytics::ANALYTICS.replay_sample_rate }}) return;
-				{% endif %}
-				ph.startSessionRecording();
-			}
-		});
-		</script>
+		<script data-cfasync="false" src="/analytics.js?v={{ env!("CARGO_PKG_VERSION") }}-{{ env!("REDLIB_BUILD_STAMP") }}"
+			data-key="{{ crate::analytics::ANALYTICS.api_key }}"
+			data-host="{{ crate::analytics::ANALYTICS.client_host }}"
+			data-sample-rate="{{ crate::analytics::ANALYTICS.sample_rate }}"
+			data-replay-sample-rate="{{ crate::analytics::ANALYTICS.replay_sample_rate }}"></script>
 		{% endif %}
 		</head>
 	<body class="
