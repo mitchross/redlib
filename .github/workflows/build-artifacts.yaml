@@ -18,6 +18,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # boring-sys2 hands cmake an aarch64 toolchain file that names no compiler, so cmake
+  # falls back to gcc, which rejects the clang-style --target flag. Only read for that target.
+  CC_aarch64_unknown_linux_musl: clang
+  CXX_aarch64_unknown_linux_musl: clang++
 
 jobs:
   build:
