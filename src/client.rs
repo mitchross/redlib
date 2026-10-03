@@ -27,7 +27,9 @@ const REDDIT_SHORT_URL_BASE_HOST: &str = "redd.it";
 const ALTERNATIVE_REDDIT_URL_BASE: &str = "https://www.reddit.com";
 const ALTERNATIVE_REDDIT_URL_BASE_HOST: &str = "www.reddit.com";
 
-pub static CLIENT: LazyLock<WreqClient> = LazyLock::new(build_client);
+/// The shared HTTP client. Swappable so a Reddit block can be escaped with a new
+/// fingerprint and fresh connections (see [`rebuild_client`]), like a restart.
+pub static CLIENT: LazyLock<ArcSwap<WreqClient>> = LazyLock::new(|| ArcSwap::from_pointee(build_client()));
 
 pub static OAUTH_CLIENT: LazyLock<ArcSwap<Oauth>> = LazyLock::new(|| {
 	let client = block_on(Oauth::new());
@@ -51,6 +53,14 @@ const URL_PAIRS: [(&str, &str); 2] = [
 	(ALTERNATIVE_REDDIT_URL_BASE, ALTERNATIVE_REDDIT_URL_BASE_HOST),
 	(REDDIT_SHORT_URL_BASE, REDDIT_SHORT_URL_BASE_HOST),
 ];
+
+/// Replace the shared client with a fresh one: a new random emulation (TLS and
+/// HTTP/2 fingerprint) and no pooled connections. A token refresh alone reuses
+/// the old client; on 2026-10-02 a 403 block outlived six refresh windows and
+/// only a restart, which also rebuilds the client, cleared it.
+pub fn rebuild_client() {
+	CLIENT.store(std::sync::Arc::new(build_client()));
+}
 
 pub fn build_client() -> WreqClient {
 	// Keeping this list short to aid in privacy.
@@ -172,7 +182,7 @@ pub async fn proxy(req: HyperRequest<Body>, format: &str) -> Result<HyperRespons
 	// First parameter is target URL (mandatory).
 	let wreq_uri = wreq::Uri::try_from(url).map_err(|_| "Couldn't parse URL".to_string())?;
 
-	let mut builder = CLIENT.get(wreq_uri);
+	let mut builder = CLIENT.load().get(wreq_uri);
 
 	// Copy useful headers from original request
 	for &key in &["Range", "If-Modified-Since", "Cache-Control"] {
@@ -293,7 +303,7 @@ async fn send(method: &'static Method, path: &str, quarantine: bool, base_path: 
 	// shuffle headers: https://github.com/redlib-org/redlib/issues/324
 	fastrand::shuffle(&mut headers);
 
-	let mut builder = CLIENT.request(method.clone(), &url);
+	let mut builder = CLIENT.load().request(method.clone(), &url);
 	for (key, value) in headers {
 		builder = builder.header(key, value);
 	}
@@ -428,8 +438,17 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 								tokio::spawn(force_refresh_token());
 							}
 							// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
+							// Rebuild the HTTP client first: a new token through the old,
+							// blocked client didn't clear the block, a restart did.
 							if status.as_u16() == 403 && refresh_due("Reddit returned a non-JSON 403") {
-								tokio::spawn(force_refresh_token());
+								tokio::spawn(async {
+									rebuild_client();
+									let refreshed = force_refresh_token().await;
+									warn!(
+										"Rebuilt the HTTP client after a 403 block; new token: {}",
+										if refreshed { "yes" } else { "no (kept the old one)" }
+									);
+								});
 							}
 							if status.is_server_error() {
 								Err("Reddit is having issues, check if there's an outage".to_string())
@@ -534,6 +553,22 @@ impl IntoHyperResponse for WreqResponse {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn rebuild_client_swaps_in_a_new_client() {
+		let before = super::CLIENT.load_full();
+		super::rebuild_client();
+		assert!(!std::sync::Arc::ptr_eq(&before, &super::CLIENT.load_full()));
+	}
+
+	#[tokio::test(flavor = "multi_thread")]
+	#[ignore] // Reddit blocks GitHub Actions IPs
+	async fn requests_work_after_rebuilding_the_client() {
+		super::rebuild_client();
+		assert!(super::force_refresh_token().await);
+		let val = super::json("/r/rust/hot.json?raw_json=1&limit=5".to_string(), false).await.unwrap();
+		assert!(val["data"]["children"].as_array().is_some_and(|c| !c.is_empty()));
+	}
+
 	#[test]
 	fn triggered_refresh_is_rate_limited() {
 		use super::claim_refresh_slot;
