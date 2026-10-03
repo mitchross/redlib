@@ -230,6 +230,12 @@ static REFRESH_FAILURES: AtomicU32 = AtomicU32::new(0);
 /// Unix seconds before which no new refresh is attempted after a failure.
 static NEXT_REFRESH_AT: AtomicU64 = AtomicU64::new(0);
 
+/// Consecutive failed refreshes (~3.5 min of backoff) after which the process
+/// exits so Kubernetes restarts it. On 2026-10-02/03 every Reddit block that
+/// in-process refreshes couldn't clear ended immediately on a restart (00:19,
+/// 17:10, 18:52 UTC); a fresh process got a token on its first try.
+const RESTART_AFTER_FAILED_REFRESHES: u32 = 3;
+
 /// Wait after the `failures`-th consecutive failed refresh: 30 s, 1, 2, 4 min,
 /// then 5 min at most. Without it, every request during a Reddit block retried
 /// the token endpoint (~180 calls/min on 2026-10-03), likely prolonging blocks.
@@ -270,6 +276,10 @@ pub async fn force_refresh_token() -> bool {
 		// process. The current token may still work, so keep it and back off.
 		None => {
 			let failures = REFRESH_FAILURES.fetch_add(1, Ordering::SeqCst) + 1;
+			if failures >= RESTART_AFTER_FAILED_REFRESHES {
+				error!("[⛔] {failures} token refreshes failed in a row; exiting so Kubernetes restarts redlib (a restart clears Reddit blocks)");
+				std::process::exit(1);
+			}
 			let wait = refresh_backoff_secs(failures);
 			NEXT_REFRESH_AT.store(unix_now() + wait, Ordering::SeqCst);
 			warn!("[⚠️] Could not refresh the OAuth token (failure {failures} in a row); keeping the current one, next attempt in {wait} s");
