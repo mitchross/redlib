@@ -274,7 +274,7 @@ impl OauthBackend for MobileSpoofAuth {
 	async fn authenticate(&mut self) -> Result<OauthResponse, AuthError> {
 		// Construct URL for OAuth token
 		let url = format!("{AUTH_ENDPOINT}/auth/v2/oauth/access-token/loid");
-		let mut builder = CLIENT.post(&url);
+		let mut builder = CLIENT.load().post(&url);
 
 		// Add headers from spoofed client
 		for (key, value) in &self.device.initial_headers {
@@ -389,7 +389,7 @@ impl OauthBackend for GenericWebAuth {
 	async fn authenticate(&mut self) -> Result<OauthResponse, AuthError> {
 		// Construct URL for OAuth token
 		let url = "https://www.reddit.com/api/v1/access_token";
-		let mut builder = CLIENT.post(url);
+		let mut builder = CLIENT.load().post(url);
 
 		// Add minimal headers
 		builder = builder.header("Host", "www.reddit.com");
