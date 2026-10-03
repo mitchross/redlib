@@ -331,7 +331,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 	// (a cooldown here caused 2.2.7's rate-limit outage). force_refresh_token
 	// already lets only one refresh run at a time.
 	if current_rate_limit < 10 && !is_rolling_over {
-		warn!("Rate limit {current_rate_limit} is low; rolling over to a new token");
+		trace!("Rate limit {current_rate_limit} is low; rolling over to a new token");
 		tokio::spawn(force_refresh_token());
 	}
 	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
