@@ -117,19 +117,34 @@ impl Oauth {
 
 			failure_count += 1;
 
-			// If not forced, switch to GenericWeb after 5 failures with MobileSpoof
-			if forced_backend.as_deref().is_none() && matches!(backend, OauthBackendImpl::MobileSpoof(_)) && failure_count >= 5 {
-				warn!("[🔄] MobileSpoofAuth failed 5 times. Falling back to GenericWebAuth...");
+			// If not forced, switch to GenericWeb after 2 failures with MobileSpoof
+			if forced_backend.as_deref().is_none() && matches!(backend, OauthBackendImpl::MobileSpoof(_)) && failure_count >= 2 {
+				warn!("[🔄] MobileSpoofAuth failed twice. Falling back to GenericWebAuth...");
 				backend = OauthBackendImpl::GenericWeb(GenericWebAuth::new());
 			}
 
-			// Crash after 10 total failures
-			if failure_count >= 10 {
-				error!("[⛔] Failed to create OAuth client (mobile + generic)");
-				std::process::exit(1);
+			// Start without a token rather than exiting. When Reddit blocks the
+			// token endpoint for this IP, a restart can't get past it either: on
+			// 2026-10-04 exiting here crash-looped the pod for good. Giving up after
+			// ~20 s also keeps startup inside the liveness probe's window. The
+			// token daemon then keeps retrying with backoff (force_refresh_token).
+			if failure_count >= STARTUP_TOKEN_ATTEMPTS {
+				error!("[⛔] No OAuth token after {failure_count} attempts; starting without one and retrying in the background");
+				note_refresh_failure();
+				return Self::without_token(backend);
 			}
 
 			tokio::time::sleep(OAUTH_TIMEOUT).await;
+		}
+	}
+
+	/// A client with the backend's headers but no Authorization, used when no token
+	/// could be fetched at startup. `expires_in: 0` makes the token daemon retry soon.
+	fn without_token(backend: OauthBackendImpl) -> Self {
+		Self {
+			headers_map: backend.get_headers(),
+			expires_in: 0,
+			backend,
 		}
 	}
 
@@ -230,11 +245,17 @@ static REFRESH_FAILURES: AtomicU32 = AtomicU32::new(0);
 /// Unix seconds before which no new refresh is attempted after a failure.
 static NEXT_REFRESH_AT: AtomicU64 = AtomicU64::new(0);
 
-/// Consecutive failed refreshes (~3.5 min of backoff) after which the process
-/// exits so Kubernetes restarts it. On 2026-10-02/03 every Reddit block that
-/// in-process refreshes couldn't clear ended immediately on a restart (00:19,
-/// 17:10, 18:52 UTC); a fresh process got a token on its first try.
-const RESTART_AFTER_FAILED_REFRESHES: u32 = 3;
+/// Token attempts at startup before starting without one (see `Oauth::new`).
+const STARTUP_TOKEN_ATTEMPTS: u32 = 3;
+
+/// Record a failed refresh and push the next attempt out by the backoff.
+/// Returns (consecutive failures, seconds until the next attempt).
+fn note_refresh_failure() -> (u32, u64) {
+	let failures = REFRESH_FAILURES.fetch_add(1, Ordering::SeqCst) + 1;
+	let wait = refresh_backoff_secs(failures);
+	NEXT_REFRESH_AT.store(unix_now() + wait, Ordering::SeqCst);
+	(failures, wait)
+}
 
 /// Wait after the `failures`-th consecutive failed refresh: 30 s, 1, 2, 4 min,
 /// then 5 min at most. Without it, every request during a Reddit block retried
@@ -275,13 +296,9 @@ pub async fn force_refresh_token() -> bool {
 		// Used to fall through to Oauth::new, which retries ~100 s and then exits the
 		// process. The current token may still work, so keep it and back off.
 		None => {
-			let failures = REFRESH_FAILURES.fetch_add(1, Ordering::SeqCst) + 1;
-			if failures >= RESTART_AFTER_FAILED_REFRESHES {
-				error!("[⛔] {failures} token refreshes failed in a row; exiting so Kubernetes restarts redlib (a restart clears Reddit blocks)");
-				std::process::exit(1);
-			}
-			let wait = refresh_backoff_secs(failures);
-			NEXT_REFRESH_AT.store(unix_now() + wait, Ordering::SeqCst);
+			// Keep running: exiting here (2.3.3) crash-looped the pod when Reddit
+			// blocked the token endpoint for this IP, since restarts were blocked too.
+			let (failures, wait) = note_refresh_failure();
 			warn!("[⚠️] Could not refresh the OAuth token (failure {failures} in a row); keeping the current one, next attempt in {wait} s");
 			false
 		}
