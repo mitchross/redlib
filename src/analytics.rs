@@ -176,6 +176,12 @@ fn extract_domain(referrer: &str) -> &str {
 
 pub static ANALYTICS: LazyLock<Analytics> = LazyLock::new(Analytics::from_env);
 
+/// Whether the request asks not to be tracked: `DNT: 1` (Do Not Track) or
+/// `Sec-GPC: 1` (Global Privacy Control). analytics.js checks the same signals.
+pub fn sends_privacy_signal(headers: &hyper::HeaderMap) -> bool {
+	["dnt", "sec-gpc"].iter().any(|name| headers.get(*name).is_some_and(|v| v.as_bytes() == b"1"))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -214,5 +220,21 @@ mod tests {
 	fn sampling_keeps_about_the_rate() {
 		let kept = (0..10_000u32).filter(|i| in_sample(&format!("{:x}", Sha256::digest(i.to_le_bytes())), 0.1)).count();
 		assert!((800..1200).contains(&kept), "kept {kept}");
+	}
+
+	fn headers(pairs: &[(&'static str, &'static str)]) -> hyper::HeaderMap {
+		let mut map = hyper::HeaderMap::new();
+		for (name, value) in pairs {
+			map.insert(*name, value.parse().unwrap());
+		}
+		map
+	}
+
+	#[test]
+	fn honors_dnt_and_gpc() {
+		assert!(sends_privacy_signal(&headers(&[("dnt", "1")])));
+		assert!(sends_privacy_signal(&headers(&[("sec-gpc", "1")])));
+		assert!(!sends_privacy_signal(&headers(&[("dnt", "0")])));
+		assert!(!sends_privacy_signal(&headers(&[])));
 	}
 }
