@@ -442,7 +442,7 @@ async fn handle(mut req: Request<Body>, state: Arc<ServerState>) -> Result<Respo
 	if method == Method::GET && ANALYTICS.captures_pageviews() {
 		let accept_html = req_headers.get("accept").and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("text/html"));
 
-		if accept_html {
+		if accept_html && !crate::analytics::sends_privacy_signal(req_headers) {
 			let ua = req_headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
 			let host = req_headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
 			let referrer = req_headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();

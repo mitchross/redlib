@@ -233,6 +233,19 @@
 	</div>
 	{% endif %}
 
+	{% if crate::analytics::ANALYTICS.enabled && !crate::analytics::ANALYTICS.client_host.is_empty() %}
+	<div class="prefs" id="settings_analytics">
+		<legend>Analytics</legend>
+		<p class="import_hint">
+			This instance counts page views (with a rough location) and records a sample of
+			sessions to see how the site gets used. Typed text is masked in recordings.
+			Browsers that send Do Not Track or Global Privacy Control are never tracked.
+		</p>
+		<p class="import_hint" id="analytics_status" role="status"></p>
+		<p class="import_hint"><a href="/settings?ph_optout=1">Opt out on this browser</a> · <a href="/settings?ph_optin=1">Opt back in</a></p>
+	</div>
+	{% endif %}
+
 	<div id="settings_note">
 		<p><b>Note:</b> settings and subscriptions are saved in browser cookies. Clearing your cookies will reset them.
 		</p>
