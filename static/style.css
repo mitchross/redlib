@@ -325,6 +325,19 @@ main {
     margin: 0 auto;
 }
 
+/* Shown when Reddit is blocking us and the page was built from a saved copy */
+#stale_notice {
+    max-width: var(--feed-width);
+    margin: var(--space-4) auto 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-s);
+    background: var(--tint-pill);
+    color: var(--text);
+    font-size: 0.9em;
+}
+
 #column_one {
     width: 100%;
     max-width: var(--feed-width);
