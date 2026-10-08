@@ -1,6 +1,7 @@
 use crate::dbg_msg;
 use crate::oauth::{force_refresh_token, token_daemon, Oauth, OauthBackendImpl};
 use crate::server::RequestExt;
+use crate::stale;
 use crate::utils::{format_url, Post};
 use arc_swap::ArcSwap;
 use cached::proc_macro::cached;
@@ -314,9 +315,34 @@ async fn send(method: &'static Method, path: &str, quarantine: bool, base_path: 
 	})
 }
 
-/// Make a request to a Reddit API and parse the JSON response
-#[cached(size = 100, time = 30, result = true)]
+/// Make a request to a Reddit API and parse the JSON response. When Reddit
+/// fails transiently (rate limit, block, network), serve the last good copy of
+/// this response instead, if one is recent enough; see `stale`.
 pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
+	match json_fresh(path.clone(), quarantine).await {
+		Err(e) if stale::is_transient(&e) => match stale::recall(&stale_key(&path, quarantine)) {
+			Some((age, body)) => match serde_json::from_slice::<Value>(&body) {
+				Ok(json) => {
+					warn!("Serving a {age} s old copy of {path}: {e}");
+					stale::mark_served(age);
+					Ok(json)
+				}
+				Err(_) => Err(e),
+			},
+			None => Err(e),
+		},
+		other => other,
+	}
+}
+
+fn stale_key(path: &str, quarantine: bool) -> String {
+	format!("{quarantine}:{path}")
+}
+
+// Kept outside the 30 s cache below, so a copy served during a block is never
+// cached as if it were fresh.
+#[cached(size = 100, time = 30, result = true)]
+async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	// Closure to quickly build errors
 	let err = |msg: &str, e: String, path: String| -> Result<Value, String> {
 		// eprintln!("{} - {}: {}", url, msg, e);
@@ -428,6 +454,7 @@ pub async fn json(path: String, quarantine: bool) -> Result<Value, String> {
 
 								Err(format!("Reddit error {} \"{}\": {} | {path}", json["error"], json["reason"], json["message"]))
 							} else {
+								stale::remember(stale_key(&path, quarantine), body);
 								Ok(json)
 							}
 						}

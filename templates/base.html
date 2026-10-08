@@ -78,6 +78,11 @@
 		<!-- LEFT NAVIGATION RAIL (wide screens only) -->
 		{% block sidenav %}{% call utils::side_nav("-") %}{% endblock %}
 
+		{% let stale_notice = crate::stale::notice() %}
+		{% if !stale_notice.is_empty() %}
+		<div id="stale_notice" role="status">Reddit is limiting requests right now, so this is a copy from {{ stale_notice }}. It will update once Reddit answers again.</div>
+		{% endif %}
+
 		<!-- MAIN CONTENT -->
 		{% block body %}
 		<main>
