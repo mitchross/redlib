@@ -97,7 +97,7 @@ fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Resu
 
 async fn query(body: &Value) -> Result<Value, String> {
 	for attempt in 0..2 {
-		let mut builder = CLIENT.post(GQL_URL).timeout(Duration::from_secs(20));
+		let mut builder = CLIENT.load().post(GQL_URL).timeout(Duration::from_secs(20));
 		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
 			if !key.eq_ignore_ascii_case("content-type") {
 				builder = builder.header(key, value);
