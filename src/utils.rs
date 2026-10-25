@@ -561,6 +561,7 @@ pub struct Comment {
 	pub collapsed: bool,
 	pub is_filtered: bool,
 	pub more_count: i64,
+	pub comment_sort: String,
 	pub prefs: Preferences,
 	pub depth: u32,
 	pub descendant_count: u32,
