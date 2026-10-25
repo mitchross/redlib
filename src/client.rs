@@ -10,6 +10,7 @@ use hyper::{header, Body, Request as HyperRequest, Response as HyperResponse};
 use log::{error, info, trace, warn};
 use percent_encoding::{percent_encode, CONTROLS};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64};
@@ -290,10 +291,48 @@ async fn request(method: &'static Method, mut path: String, redirect: bool, quar
 	}
 }
 
+/// Encode one separator in comments API routes to avoid Reddit's anonymous
+/// request block while leaving every other path and the query string intact.
+fn comments_transport_path(path: &str) -> Cow<'_, str> {
+	let base = path.split('?').next().unwrap_or(path);
+	let (separator, tail) = if let Some(tail) = base.strip_prefix("/comments/") {
+		("/comments".len(), tail)
+	} else if let Some(scoped) = base.strip_prefix("/r/") {
+		let Some((subreddit, rest)) = scoped.split_once('/') else {
+			return Cow::Borrowed(path);
+		};
+		let Some(tail) = rest.strip_prefix("comments/") else {
+			return Cow::Borrowed(path);
+		};
+		if subreddit.is_empty() {
+			return Cow::Borrowed(path);
+		}
+		("/r/".len() + subreddit.len(), tail)
+	} else {
+		return Cow::Borrowed(path);
+	};
+
+	let tail = tail.strip_suffix(".json").unwrap_or(tail).trim_end_matches('/');
+	let mut segments = tail.split('/');
+	let Some(post_id) = segments.next() else {
+		return Cow::Borrowed(path);
+	};
+	let _slug = segments.next();
+	let comment_id = segments.next();
+
+	if post_id.is_empty() || comment_id.is_some_and(str::is_empty) || segments.next().is_some() {
+		return Cow::Borrowed(path);
+	}
+
+	Cow::Owned(format!("{}%2F{}", &path[..separator], &path[separator + 1..]))
+}
+
 /// Sends a single request to Reddit at `path`, without following redirects.
 async fn send(method: &'static Method, path: &str, quarantine: bool, base_path: &str, host: &str) -> Result<WreqResponse, String> {
-	// Build Reddit URL from path.
-	let url = format!("{base_path}{path}");
+	// Keep the logical path unchanged for caches and diagnostics. Reddit blocks
+	// literal anonymous comments routes, so only rewrite the outgoing URL.
+	let transport_path = comments_transport_path(path);
+	let url = format!("{base_path}{transport_path}");
 	let cookie = if quarantine { QUARANTINE_COOKIE } else { "" };
 
 	// Borrow the headers instead of copying them; the builder copies each one in.
@@ -580,6 +619,45 @@ impl IntoHyperResponse for WreqResponse {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn test_comments_transport_path_encodes_scoped_and_short_routes() {
+		for (path, expected) in [
+			(
+				"/r/rust/comments/18t5968/title/.json?sort=new&raw_json=1",
+				"/r/rust%2Fcomments/18t5968/title/.json?sort=new&raw_json=1",
+			),
+			("/r/rust/comments/18t5968/_/kfbqlbc.json?context=3", "/r/rust%2Fcomments/18t5968/_/kfbqlbc.json?context=3"),
+			("/comments/18t5968.json?raw_json=1", "/comments%2F18t5968.json?raw_json=1"),
+			("/comments/18t5968/_/kfbqlbc.json?context=3", "/comments%2F18t5968/_/kfbqlbc.json?context=3"),
+			("/r/comments/comments/18t5968.json", "/r/comments%2Fcomments/18t5968.json"),
+		] {
+			assert_eq!(comments_transport_path(path), expected);
+			assert_eq!(comments_transport_path(expected), expected, "encoding must be idempotent");
+		}
+	}
+
+	#[test]
+	fn test_comments_transport_path_preserves_other_routes_and_queries() {
+		for path in [
+			"/r/popular/hot.json?after=t3_abc",
+			"/r/rust/comments.json",
+			"/r/rust/commentsXYZ/abc.json",
+			"/r/rust/wiki/comments/abc.json",
+			"/r//comments/abc.json",
+			"/comments/.json",
+			"/comments.json",
+			"/user/example/comments.json",
+			"/user/example/comments/abc.json",
+			"/search.json?q=/r/rust/comments/abc",
+			"https://example.com/r/rust/comments/abc.json",
+			"//example.com/r/rust/comments/abc.json",
+		] {
+			assert!(matches!(comments_transport_path(path), Cow::Borrowed(_)), "{path}");
+		}
+
+		let path = "/r/rust/comments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top";
+		assert_eq!(comments_transport_path(path), "/r/rust%2Fcomments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top");
+	}
 	#[test]
 	fn rebuild_client_swaps_in_a_new_client() {
 		let before = super::CLIENT.load_full();
