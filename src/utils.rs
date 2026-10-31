@@ -1223,7 +1223,10 @@ pub fn rewrite_urls(input_text: &str) -> String {
 			break;
 		} else {
 			text1 = REDDIT_EMOJI_REGEX
-				.replace_all(&text1, format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
+				.replace_all(
+					&text1,
+					regex::NoExpand(&format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default())),
+				)
 				.to_string()
 		}
 	}
@@ -1785,6 +1788,14 @@ mod tests {
 	fn test_rewriting_emoji() {
 		let input = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
 		let output = r#"<div class="md"><p>How can you have such hard feelings towards a license? <img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20" height="20" style="vertical-align:middle"> Let people use what license they want, and BSD is one of the least restrictive ones AFAIK.</p>"#;
+		assert_eq!(rewrite_urls(input), output);
+	}
+
+	#[test]
+	fn test_rewriting_emoji_keeps_dollar_signs() {
+		let input =
+			r#"<p><img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20"> costs $2 and $5 or ${name}</p>"#;
+		let output = r#"<p><img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20"> costs $2 and $5 or ${name}</p>"#;
 		assert_eq!(rewrite_urls(input), output);
 	}
 
