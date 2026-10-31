@@ -1,3 +1,4 @@
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::{env::var, fs::read_to_string, sync::LazyLock};
 
@@ -124,9 +125,16 @@ impl Config {
 	/// In the case that there are no environment variables set and there is no
 	/// config file, this function returns a Config that contains all None values.
 	pub fn load() -> Self {
-		let load_config = |name: &str| {
-			let new_file = read_to_string(name);
-			new_file.ok().and_then(|new_file| toml::from_str::<Self>(&new_file).ok())
+		// A missing file is normal and stays silent. A file that exists but can't be
+		// read or parsed is logged, since its settings (SFW-only, say) silently stop applying.
+		let load_config = |name: &str| match read_to_string(name) {
+			Ok(file) => parse_config_file(name, &file),
+			Err(e) => {
+				if e.kind() != std::io::ErrorKind::NotFound {
+					warn!("[⚠️] Ignoring {name}: could not read it: {e}");
+				}
+				None
+			}
 		};
 
 		let config = load_config("redlib.toml").or_else(|| load_config("libreddit.toml")).unwrap_or_default();
@@ -168,6 +176,18 @@ impl Config {
 			default_remove_default_feeds: parse("REDLIB_DEFAULT_REMOVE_DEFAULT_FEEDS"),
 			default_post_count: parse("REDLIB_DEFAULT_POST_COUNT"),
 			default_collapse_depth: parse("REDLIB_DEFAULT_COLLAPSE_DEPTH"),
+		}
+	}
+}
+
+/// Parses a config file's contents. Every value must be a string, so
+/// `REDLIB_SFW_ONLY = true` is an error; it is logged with the file name.
+fn parse_config_file(name: &str, contents: &str) -> Option<Config> {
+	match toml::from_str::<Config>(contents) {
+		Ok(config) => Some(config),
+		Err(e) => {
+			warn!("[⚠️] Ignoring {name}: it is not valid, so none of its settings apply: {}", e.message());
+			None
 		}
 	}
 }
@@ -220,6 +240,33 @@ mod tests {
 		// Must handle empty input
 		let result = toml::from_str::<Config>("");
 		assert!(result.is_ok(), "Error: {}", result.unwrap_err());
+	}
+
+	struct CaptureLogger(std::sync::Mutex<Vec<String>>);
+
+	impl log::Log for CaptureLogger {
+		fn enabled(&self, _: &log::Metadata) -> bool {
+			true
+		}
+		fn log(&self, record: &log::Record) {
+			self.0.lock().unwrap().push(format!("{}: {}", record.level(), record.args()));
+		}
+		fn flush(&self) {}
+	}
+
+	#[sealed_test]
+	fn test_invalid_config_file_is_logged() {
+		static LOGGER: CaptureLogger = CaptureLogger(std::sync::Mutex::new(Vec::new()));
+		log::set_logger(&LOGGER).unwrap();
+		log::set_max_level(log::LevelFilter::Warn);
+
+		// Booleans aren't strings, so the whole file used to be dropped without a word
+		write("redlib.toml", "REDLIB_SFW_ONLY = true\n").unwrap();
+		assert_eq!(get_setting("REDLIB_SFW_ONLY"), None);
+
+		let logged = LOGGER.0.lock().unwrap().join("\n");
+		assert!(logged.contains("redlib.toml"), "{logged}");
+		assert!(logged.contains("invalid type"), "{logged}");
 	}
 
 	#[test]
