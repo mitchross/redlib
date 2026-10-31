@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 // CRATES
+use crate::analytics::OPT_OUT_COOKIE;
 use crate::server::ResponseExt;
 use crate::subreddit::join_until_size_limit;
 use crate::utils::{deflate_decompress, local_path, redirect, template, Preferences};
@@ -59,13 +60,29 @@ pub async fn get(req: Request<Body>) -> Result<Response<Body>, String> {
 	let url = req.uri().to_string();
 	let query = req.uri().query().unwrap_or_default();
 	let query_param = |name: &str| form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
-	Ok(template(&SettingsTemplate {
+	let mut response = template(&SettingsTemplate {
 		prefs: Preferences::new(&req),
 		url,
 		imported: query_param("imported").and_then(|n| n.parse().ok()),
 		import_next: query_param("import_next").filter(|after| is_listing_cursor(after)),
 		import_too_large: query_param("import_error").as_deref() == Some("too_large"),
-	}))
+	});
+
+	// The "Opt out on this browser" links of the analytics notice. analytics.js
+	// handles the browser side; the cookie lets the server skip its pageviews.
+	if query_param("ph_optout").as_deref() == Some("1") {
+		response.insert_cookie(
+			Cookie::build((OPT_OUT_COOKIE, "1"))
+				.path("/")
+				.http_only(true)
+				.expires(OffsetDateTime::now_utc() + Duration::weeks(52))
+				.into(),
+		);
+	} else if query_param("ph_optin").as_deref() == Some("1") {
+		response.remove_cookie(OPT_OUT_COOKIE.to_string());
+	}
+
+	Ok(response)
 }
 
 /// Set cookies using response "Set-Cookie" header
@@ -484,6 +501,25 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 #[cfg(test)]
 mod import_tests {
 	use super::{is_listing_cursor, listing_after, merge_names, parse_subreddit_names};
+
+	#[tokio::test]
+	async fn settings_page_sets_and_clears_the_analytics_opt_out_cookie() {
+		use super::get;
+		use hyper::{Body, Request};
+		let set_cookies = |query: &'static str| async move {
+			let req = Request::builder().uri(format!("/settings{query}")).body(Body::empty()).unwrap();
+			let response = get(req).await.unwrap();
+			response.headers().get_all("set-cookie").iter().map(|v| v.to_str().unwrap().to_string()).collect::<Vec<_>>()
+		};
+
+		let opted_out = set_cookies("?ph_optout=1").await;
+		assert!(opted_out.iter().any(|c| c.starts_with("ph_optout=1;")), "{opted_out:?}");
+
+		let opted_in = set_cookies("?ph_optin=1").await;
+		assert!(opted_in.iter().any(|c| c.starts_with("ph_optout=;")), "{opted_in:?}");
+
+		assert!(set_cookies("").await.is_empty());
+	}
 
 	#[test]
 	fn json_names_are_validated_like_plain_names() {
