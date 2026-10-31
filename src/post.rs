@@ -80,9 +80,32 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 			let form = url::form_urlencoded::parse(query_string.as_bytes()).collect::<HashMap<_, _>>();
 			let query = form.get("q").unwrap().clone().to_string();
 
+			// Every comment shares these, so build them once instead of per comment
+			let prefs = Preferences::new(&req);
+			let comment_sort = param(&req.uri().to_string(), "sort").unwrap_or_else(|| setting(&req, "comment_sort"));
+
 			let comments = match query.as_str() {
-				"" => parse_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &req, 0),
-				_ => query_comments(&response[1], &post.permalink, &post.author.name, highlighted_comment, &get_filters(&req), &query, &req, 0),
+				"" => parse_comments(
+					&response[1],
+					&post.permalink,
+					&post.author.name,
+					highlighted_comment,
+					&get_filters(&req),
+					&prefs,
+					&comment_sort,
+					0,
+				),
+				_ => query_comments(
+					&response[1],
+					&post.permalink,
+					&post.author.name,
+					highlighted_comment,
+					&get_filters(&req),
+					&query.to_lowercase(),
+					&prefs,
+					&comment_sort,
+					0,
+				),
 			};
 
 			// Use the Post and Comment structs to generate a website to show users
@@ -91,7 +114,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 				post,
 				url_without_query: url.clone().trim_end_matches(&format!("?q={query}&type=comment")).to_string(),
 				sort: response[1]["data"]["sort"].as_str().unwrap_or(&sort).to_string(),
-				prefs: Preferences::new(&req),
+				prefs,
 				single_thread,
 				url: req_url,
 				comment_query: query,
@@ -112,13 +135,15 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 
 // COMMENTS
 
+#[allow(clippy::too_many_arguments)]
 fn parse_comments(
 	json: &serde_json::Value,
 	post_link: &str,
 	post_author: &str,
 	highlighted_comment: &str,
 	filters: &HashSet<String>,
-	req: &Request<Body>,
+	prefs: &Preferences,
+	comment_sort: &str,
 	depth: u32,
 ) -> Vec<Comment> {
 	// Parse the comment JSON into a Vector of Comments
@@ -130,11 +155,11 @@ fn parse_comments(
 		.map(|comment| {
 			let data = &comment["data"];
 			let replies: Vec<Comment> = if data["replies"].is_object() {
-				parse_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, req, depth + 1)
+				parse_comments(&data["replies"], post_link, post_author, highlighted_comment, filters, prefs, comment_sort, depth + 1)
 			} else {
 				Vec::new()
 			};
-			build_comment(&comment, data, replies, post_link, post_author, highlighted_comment, filters, req, depth)
+			build_comment(&comment, data, replies, post_link, post_author, highlighted_comment, filters, prefs, comment_sort, depth)
 		})
 		.collect()
 }
@@ -146,8 +171,9 @@ fn query_comments(
 	post_author: &str,
 	highlighted_comment: &str,
 	filters: &HashSet<String>,
-	query: &str,
-	req: &Request<Body>,
+	query_lowercase: &str,
+	prefs: &Preferences,
+	comment_sort: &str,
 	depth: u32,
 ) -> Vec<Comment> {
 	let comments = json["data"]["children"].as_array().map_or(Vec::new(), std::borrow::ToOwned::to_owned);
@@ -164,15 +190,27 @@ fn query_comments(
 				post_author,
 				highlighted_comment,
 				filters,
-				query,
-				req,
+				query_lowercase,
+				prefs,
+				comment_sort,
 				depth + 1,
 			));
 		}
 
-		let c = build_comment(&comment, data, Vec::new(), post_link, post_author, highlighted_comment, filters, req, depth);
-		if c.body.to_lowercase().contains(&query.to_lowercase()) {
-			results.push(c);
+		// Search the comment's plain text; the rendered HTML would match `div`, `class` and `&amp;`
+		if val(&comment, "body").to_lowercase().contains(query_lowercase) {
+			results.push(build_comment(
+				&comment,
+				data,
+				Vec::new(),
+				post_link,
+				post_author,
+				highlighted_comment,
+				filters,
+				prefs,
+				comment_sort,
+				depth,
+			));
 		}
 	}
 
@@ -187,7 +225,8 @@ fn build_comment(
 	post_author: &str,
 	highlighted_comment: &str,
 	filters: &HashSet<String>,
-	req: &Request<Body>,
+	prefs: &Preferences,
+	comment_sort: &str,
 	depth: u32,
 ) -> Comment {
 	let id = val(comment, "id");
@@ -248,7 +287,6 @@ fn build_comment(
 	let collapsed = (is_moderator_comment && is_stickied) || is_filtered;
 
 	let descendant_count: u32 = replies.iter().map(|r| 1 + r.descendant_count).sum();
-	let prefs = Preferences::new(req);
 	let collapse_depth: u32 = if prefs.collapse_depth == "off" {
 		u32::MAX
 	} else if prefs.collapse_depth.is_empty() {
@@ -261,7 +299,7 @@ fn build_comment(
 	Comment {
 		id,
 		kind,
-		comment_sort: param(&req.uri().to_string(), "sort").unwrap_or_else(|| setting(req, "comment_sort")),
+		comment_sort: comment_sort.to_string(),
 		parent_id: parent_info[1].to_string(),
 		parent_kind: parent_info[0].to_string(),
 		post_link: post_link.to_string(),
@@ -282,9 +320,48 @@ fn build_comment(
 		collapsed,
 		is_filtered,
 		more_count,
-		prefs,
+		hide_score: prefs.hide_score == "on",
+		hide_awards: prefs.hide_awards == "on",
 		depth,
 		descendant_count,
 		auto_collapsed,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn comment(id: &str, body: &str, body_html: &str, replies: serde_json::Value) -> serde_json::Value {
+		serde_json::json!({"kind": "t1", "data": {"id": id, "author": "someone", "body": body, "body_html": body_html, "parent_id": "t3_abc", "replies": replies}})
+	}
+
+	#[test]
+	fn comment_search_matches_the_text_not_the_html() {
+		let reply = comment("b", "Tom & Jerry", "<div class=\"md\"><p>Tom &amp; Jerry</p></div>", serde_json::json!(""));
+		let thread = serde_json::json!({"data": {"children": [
+			comment("a", "nothing here", "<div class=\"md\"><p>nothing here</p></div>", serde_json::json!({"data": {"children": [reply]}})),
+		]}});
+		let search = |query: &str| {
+			let ids = |comments: Vec<crate::utils::Comment>| comments.into_iter().map(|c| c.id).collect::<Vec<_>>();
+			ids(query_comments(
+				&thread,
+				"/r/x/comments/abc/t/",
+				"op",
+				"",
+				&HashSet::new(),
+				&query.to_lowercase(),
+				&Preferences::default(),
+				"new",
+				0,
+			))
+		};
+
+		// The rendered HTML contains these, the comments' text does not
+		assert!(search("div").is_empty());
+		assert!(search("class").is_empty());
+		assert!(search("&amp;").is_empty());
+		// A nested reply is found by its text, whatever the case
+		assert_eq!(search("tom & JERRY"), vec!["b"]);
 	}
 }
