@@ -899,7 +899,11 @@ pub async fn parse_post(post: &Value) -> Post {
 		let selftext = val(post, "selftext");
 		if selftext.contains("```") {
 			let mut html_output = String::new();
-			let parser = pulldown_cmark::Parser::new(&selftext);
+			// This path bypasses Reddit's sanitized `selftext_html`, so raw HTML must be shown as text.
+			let parser = pulldown_cmark::Parser::new(&selftext).map(|event| match event {
+				pulldown_cmark::Event::Html(t) | pulldown_cmark::Event::InlineHtml(t) => pulldown_cmark::Event::Text(t),
+				event => event,
+			});
 			pulldown_cmark::html::push_html(&mut html_output, parser);
 			rewrite_urls(&html_output)
 		} else {
@@ -1632,7 +1636,9 @@ pub fn get_active_users_count() -> usize {
 
 #[cfg(test)]
 mod tests {
-	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
+	use super::{
+		deflate_compress, deflate_decompress, format_num, format_url, parse_post, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences,
+	};
 
 	#[test]
 	fn format_num_works() {
@@ -1809,6 +1815,15 @@ mod tests {
 		let comment_input = r#"<div class="comment_body "><div class="md"><p>:2028:</p></div></div>"#;
 		let output = r#"<div class="comment_body "><div class="md"><p><img loading="lazy" src="/emote/t5_31hpy/PW6WsOaLcd.png" width="60" height="60" style="vertical-align:text-bottom"></p></div></div>"#;
 		assert_eq!(rewrite_emotes(&json_input, comment_input.to_string()), output);
+	}
+
+	#[tokio::test]
+	async fn test_code_fence_post_does_not_pass_raw_html() {
+		let post = serde_json::json!({"data": {"selftext": "```\n```\n<img src=x>\n\nhello <b onclick=x>bold</b>", "selftext_html": "<div>ignored</div>"}});
+		let body = parse_post(&post).await.body;
+		assert!(!body.contains("<img"), "{body}");
+		assert!(!body.contains("<b "), "{body}");
+		assert!(body.contains("&lt;img src=x&gt;"), "{body}");
 	}
 
 	#[test]
