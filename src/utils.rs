@@ -695,16 +695,6 @@ pub struct Subreddit {
 	pub nsfw: bool,
 }
 
-/// Parser for query params, used in sorting (eg. /r/rust/?sort=hot)
-#[derive(serde::Deserialize)]
-pub struct Params {
-	pub t: Option<String>,
-	pub q: Option<String>,
-	pub sort: Option<String>,
-	pub after: Option<String>,
-	pub before: Option<String>,
-}
-
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[revisioned(revision = 2)]
 pub struct Preferences {
