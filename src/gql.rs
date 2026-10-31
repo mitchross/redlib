@@ -55,11 +55,18 @@ pub async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
 		(Ok(post), duplicates, sort, comments)
 	};
 	let mut post = post?;
-	// For the post's "duplicates" link
-	post["data"]["children"][0]["data"]["num_duplicates"] = duplicates.into();
+	set_duplicates(&mut post, duplicates)?;
 	let mut comments = listing(comments?);
 	comments["data"]["sort"] = sort.into();
 	Ok(json_value!([post, comments]))
+}
+
+/// Sets the post's `num_duplicates`, for its "duplicates" link. A post that doesn't
+/// exist comes back as an empty listing, which would panic on `children[0]`.
+fn set_duplicates(post: &mut Value, duplicates: usize) -> Result<(), String> {
+	let data = post["data"]["children"].get_mut(0).map(|p| &mut p["data"]).ok_or("Post not found")?;
+	data["num_duplicates"] = duplicates.into();
+	Ok(())
 }
 
 /// GraphQL's comment sort for one of the JSON API's
@@ -502,6 +509,18 @@ fn table(node: &Value, media: &Value) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn test_set_duplicates() {
+		let mut post = json_value!({"data": {"children": [{"data": {"id": "abc"}}]}});
+		assert!(set_duplicates(&mut post, 3).is_ok());
+		assert_eq!(post["data"]["children"][0]["data"]["num_duplicates"], 3);
+
+		// A missing post is an empty listing; it used to panic
+		for mut missing in [json_value!({"data": {"children": []}}), json_value!(null)] {
+			assert_eq!(set_duplicates(&mut missing, 3), Err("Post not found".to_string()));
+		}
+	}
 
 	#[test]
 	fn test_parse_path() {

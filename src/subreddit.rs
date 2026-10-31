@@ -1,8 +1,8 @@
 #![allow(clippy::cmp_owned)]
 
 use crate::utils::{
-	catch_random, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls, setting, template, to_absolute_url, val, Post,
-	Preferences, Subreddit,
+	catch_random, error, filter_posts, format_num, format_url, get_filters, info, local_path, nsfw_landing, param, redirect, rewrite_urls, setting, template, to_absolute_url,
+	val, Post, Preferences, Subreddit,
 };
 use crate::{client::json, server::RequestExt, server::ResponseExt};
 use crate::{config, utils};
@@ -260,7 +260,7 @@ pub fn quarantine(req: &Request<Body>, sub: String, restriction: &str) -> Respon
 pub async fn add_quarantine_exception(req: Request<Body>) -> Result<Response<Body>, String> {
 	let subreddit = req.param("sub").ok_or("Invalid URL")?;
 	let redir = param(&format!("?{}", req.uri().query().unwrap_or_default()), "redir").ok_or("Invalid URL")?;
-	let mut response = redirect(&redir);
+	let mut response = redirect(&local_path(&redir));
 	response.insert_cookie(
 		Cookie::build((&format!("allow_quaran_{}", subreddit.to_lowercase()), "true"))
 			.path("/")
@@ -311,6 +311,17 @@ pub fn join_until_size_limit<T: std::fmt::Display>(vec: &[T]) -> Vec<std::string
 	result
 }
 
+/// Most names one subscribe/filter request may list. Each unknown name costs a
+/// separate request to Reddit.
+const MAX_ACTION_NAMES: usize = 25;
+
+fn check_name_count(sub: &str) -> Result<(), String> {
+	if sub.split('+').filter(|x| !x.is_empty()).count() > MAX_ACTION_NAMES {
+		return Err("Too many subreddits".to_string());
+	}
+	Ok(())
+}
+
 // Sub, filter, unfilter, or unsub by setting subscription cookie using response "Set-Cookie" header
 pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>, String> {
 	let sub = req.param("sub").unwrap_or_default();
@@ -323,6 +334,8 @@ pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>,
 		}
 		return Err("Can't subscribe to random subreddit!".to_string());
 	}
+
+	check_name_count(&sub)?;
 
 	let query = req.uri().query().unwrap_or_default().to_string();
 
@@ -396,7 +409,7 @@ pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>,
 	// Redirect back to subreddit
 	// check for redirect parameter if unsubscribing/unfiltering from outside sidebar
 	let path = if let Some(redirect_path) = param(&format!("?{query}"), "redirect") {
-		format!("/{redirect_path}")
+		local_path(&format!("/{redirect_path}"))
 	} else {
 		format!("/r/{sub}")
 	};
@@ -636,7 +649,7 @@ async fn subreddit(sub: &str, quarantined: bool) -> Result<Subreddit, String> {
 }
 
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !crate::utils::enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 
@@ -751,6 +764,25 @@ fn get_mime_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sealed_test::prelude::*;
+
+	#[sealed_test(env = [("REDLIB_ENABLE_RSS", "off")])]
+	fn test_rss_disabled_when_set_to_off() {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let req = Request::builder().uri("/r/rust.rss").body(Body::empty()).unwrap();
+		let response = rt.block_on(rss(req)).unwrap();
+		let body = String::from_utf8(rt.block_on(hyper::body::to_bytes(response.into_body())).unwrap().to_vec()).unwrap();
+		assert!(body.contains("RSS is disabled on this instance."), "{body}");
+	}
+
+	#[test]
+	fn test_check_name_count() {
+		let names = |n: usize| (0..n).map(|i| format!("sub{i}")).collect::<Vec<_>>().join("+");
+		assert!(check_name_count(&names(1)).is_ok());
+		assert!(check_name_count(&names(25)).is_ok());
+		assert!(check_name_count(&format!("{}+", names(25))).is_ok());
+		assert_eq!(check_name_count(&names(26)), Err("Too many subreddits".to_string()));
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_fetching_subreddit() {

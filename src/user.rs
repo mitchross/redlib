@@ -1,8 +1,8 @@
 #![allow(clippy::cmp_owned)]
 use crate::client::json;
 use crate::server::RequestExt;
+use crate::utils;
 use crate::utils::{error, filter_posts, format_url, get_filters, nsfw_landing, param, setting, template, Post, Preferences, User};
-use crate::{config, utils};
 use askama::Template;
 use chrono::DateTime;
 use htmlescape::decode_html;
@@ -135,7 +135,7 @@ async fn user(name: &str) -> Result<User, String> {
 }
 
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !crate::utils::enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 	use crate::utils::rewrite_urls;
@@ -188,6 +188,16 @@ pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sealed_test::prelude::*;
+
+	#[sealed_test(env = [("REDLIB_ENABLE_RSS", "off")])]
+	fn test_rss_disabled_when_set_to_off() {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let req = Request::builder().uri("/user/spez.rss").body(Body::empty()).unwrap();
+		let response = rt.block_on(rss(req)).unwrap();
+		let body = String::from_utf8(rt.block_on(hyper::body::to_bytes(response.into_body())).unwrap().to_vec()).unwrap();
+		assert!(body.contains("RSS is disabled on this instance."), "{body}");
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_fetching_user() {

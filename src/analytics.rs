@@ -182,6 +182,22 @@ pub fn sends_privacy_signal(headers: &hyper::HeaderMap) -> bool {
 	["dnt", "sec-gpc"].iter().any(|name| headers.get(*name).is_some_and(|v| v.as_bytes() == b"1"))
 }
 
+/// Name of the cookie set by `/settings?ph_optout=1`, so the server can honor
+/// the "Opt out on this browser" link too. posthog-js keeps its own opt-out
+/// in the browser, where the server can't see it.
+pub const OPT_OUT_COOKIE: &str = "ph_optout";
+
+/// Whether the request carries the in-app opt-out cookie.
+pub fn has_opt_out_cookie(headers: &hyper::HeaderMap) -> bool {
+	headers
+		.get_all(hyper::header::COOKIE)
+		.iter()
+		.filter_map(|header| header.to_str().ok())
+		.flat_map(cookie::Cookie::split_parse)
+		.filter_map(Result::ok)
+		.any(|cookie| cookie.name() == OPT_OUT_COOKIE && cookie.value() == "1")
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -236,5 +252,14 @@ mod tests {
 		assert!(sends_privacy_signal(&headers(&[("sec-gpc", "1")])));
 		assert!(!sends_privacy_signal(&headers(&[("dnt", "0")])));
 		assert!(!sends_privacy_signal(&headers(&[])));
+	}
+
+	#[test]
+	fn honors_the_opt_out_cookie() {
+		assert!(has_opt_out_cookie(&headers(&[("cookie", "ph_optout=1")])));
+		assert!(has_opt_out_cookie(&headers(&[("cookie", "theme=dark; ph_optout=1; layout=card")])));
+		assert!(!has_opt_out_cookie(&headers(&[("cookie", "ph_optout=0")])));
+		assert!(!has_opt_out_cookie(&headers(&[("cookie", "xph_optout=1; theme=dark")])));
+		assert!(!has_opt_out_cookie(&headers(&[])));
 	}
 }

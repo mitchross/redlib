@@ -15,7 +15,7 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64};
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, EmulationFactory, Method, Response as WreqResponse};
 use wreq_util::{Emulation, EmulationOS, EmulationOption};
@@ -64,6 +64,12 @@ pub fn rebuild_client() {
 	CLIENT.store(std::sync::Arc::new(build_client()));
 }
 
+/// Connecting to Reddit or a CDN takes well under this.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Per read, not in total: it restarts after every chunk, so long video streams
+/// still work, but an upstream that goes silent can't hold a request forever.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub fn build_client() -> WreqClient {
 	// Keeping this list short to aid in privacy.
 	// The more emulations, the more unique a fingerprint each instance has.
@@ -82,6 +88,8 @@ pub fn build_client() -> WreqClient {
 	WreqClient::builder()
 		.emulation(emulation)
 		.redirect(Policy::none())
+		.connect_timeout(CONNECT_TIMEOUT)
+		.read_timeout(READ_TIMEOUT)
 		.build()
 		.expect("Should always be able to build a client")
 }
@@ -291,6 +299,12 @@ async fn request(method: &'static Method, mut path: String, redirect: bool, quar
 	}
 }
 
+/// Whether `path` is a post thread. Only the part before the query string counts,
+/// so a search for a pasted `/comments/` link isn't sent to the thread code.
+fn is_comments_route(path: &str) -> bool {
+	path.split('?').next().unwrap_or(path).contains("/comments/")
+}
+
 /// Encode one separator in comments API routes to avoid Reddit's anonymous
 /// request block while leaving every other path and the query string intact.
 fn comments_transport_path(path: &str) -> Cow<'_, str> {
@@ -389,7 +403,7 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 	};
 
 	// Reddit blocks anonymous JSON for these paths; GraphQL answers them in the same shape.
-	let routed = if path.contains("/comments/") {
+	let routed = if is_comments_route(&path) {
 		Some(Box::pin(crate::gql::thread(&path, quarantine)).await)
 	} else {
 		Box::pin(crate::gql_feed::route(&path, quarantine)).await
@@ -681,6 +695,14 @@ mod tests {
 		let path = "/r/rust/comments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top";
 		assert_eq!(comments_transport_path(path), "/r/rust%2Fcomments/abc.json?sort=new&context=3&q=a%2Bb&empty=&sort=top");
 	}
+	#[test]
+	fn test_is_comments_route_ignores_the_query_string() {
+		assert!(is_comments_route("/r/rust/comments/abc/title/.json?sort=new"));
+		assert!(is_comments_route("/comments/abc.json"));
+		assert!(!is_comments_route("/search.json?q=reddit.com/r/rust/comments/abc&raw_json=1"));
+		assert!(!is_comments_route("/r/rust/hot.json?after=/comments/x"));
+	}
+
 	#[test]
 	fn rebuild_client_swaps_in_a_new_client() {
 		let before = super::CLIENT.load_full();

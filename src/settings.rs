@@ -1,17 +1,16 @@
 #![allow(clippy::cmp_owned)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // CRATES
+use crate::analytics::OPT_OUT_COOKIE;
 use crate::server::ResponseExt;
 use crate::subreddit::join_until_size_limit;
-use crate::utils::{deflate_decompress, redirect, template, Preferences};
+use crate::utils::{deflate_decompress, local_path, redirect, template, Preferences};
 use askama::Template;
 use cookie::Cookie;
-use futures_lite::StreamExt;
 use hyper::{body::HttpBody, Body, Request, Response};
 use time::{Duration, OffsetDateTime};
-use tokio::time::timeout;
 use url::form_urlencoded;
 
 // STRUCTS
@@ -61,19 +60,35 @@ pub async fn get(req: Request<Body>) -> Result<Response<Body>, String> {
 	let url = req.uri().to_string();
 	let query = req.uri().query().unwrap_or_default();
 	let query_param = |name: &str| form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
-	Ok(template(&SettingsTemplate {
+	let mut response = template(&SettingsTemplate {
 		prefs: Preferences::new(&req),
 		url,
 		imported: query_param("imported").and_then(|n| n.parse().ok()),
 		import_next: query_param("import_next").filter(|after| is_listing_cursor(after)),
 		import_too_large: query_param("import_error").as_deref() == Some("too_large"),
-	}))
+	});
+
+	// The "Opt out on this browser" links of the analytics notice. analytics.js
+	// handles the browser side; the cookie lets the server skip its pageviews.
+	if query_param("ph_optout").as_deref() == Some("1") {
+		response.insert_cookie(
+			Cookie::build((OPT_OUT_COOKIE, "1"))
+				.path("/")
+				.http_only(true)
+				.expires(OffsetDateTime::now_utc() + Duration::weeks(52))
+				.into(),
+		);
+	} else if query_param("ph_optin").as_deref() == Some("1") {
+		response.remove_cookie(OPT_OUT_COOKIE.to_string());
+	}
+
+	Ok(response)
 }
 
 /// Set cookies using response "Set-Cookie" header
 pub async fn set(req: Request<Body>) -> Result<Response<Body>, String> {
 	// Split the body into parts
-	let (parts, mut body) = req.into_parts();
+	let (parts, body) = req.into_parts();
 
 	// Grab existing cookies
 	let _cookies: Vec<Cookie<'_>> = parts
@@ -83,15 +98,7 @@ pub async fn set(req: Request<Body>) -> Result<Response<Body>, String> {
 		.filter_map(|header| Cookie::parse(header.to_str().unwrap_or_default()).ok())
 		.collect();
 
-	// Aggregate the body...
-	// let whole_body = hyper::body::aggregate(req).await.map_err(|e| e.to_string())?;
-	let body_bytes = body
-		.try_fold(Vec::new(), |mut data, chunk| {
-			data.extend_from_slice(&chunk);
-			Ok(data)
-		})
-		.await
-		.map_err(|e| e.to_string())?;
+	let body_bytes = read_body_limited(body, SETTINGS_BODY_LIMIT).await?.ok_or("Request body too large")?;
 
 	let form = url::form_urlencoded::parse(&body_bytes).collect::<HashMap<_, _>>();
 
@@ -132,11 +139,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 	let path = match form.get("redirect") {
 		Some(value) => {
 			let value = value.replace("%26", "&").replace("%23", "#");
-			if value.starts_with('/') {
-				value
-			} else {
-				format!("/{value}")
-			}
+			local_path(&if value.starts_with('/') { value } else { format!("/{value}") })
 		}
 		None => "/".to_string(),
 	};
@@ -312,11 +315,7 @@ pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, 
 	// Merge (case-insensitive dedupe), then sort like the subscribe endpoint
 	let names = parse_subreddit_names(&import_data);
 	let imported = names.len();
-	for name in names {
-		if !sub_list.iter().any(|s| s.to_lowercase() == name.to_lowercase()) {
-			sub_list.push(name);
-		}
-	}
+	merge_names(&mut sub_list, names);
 	sub_list.sort_by_key(|a| a.to_lowercase());
 
 	// mine.json is paged (25 by default, 100 at most). When this wasn't the last
@@ -388,19 +387,45 @@ fn parse_subreddit_names(input: &str) -> Vec<String> {
 				continue;
 			}
 
-			if token.len() <= 24 && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+			if is_subreddit_name(token) {
 				names.push(token.to_string());
 			}
 		}
 	}
 
+	names.truncate(MAX_IMPORT_NAMES);
 	names
+}
+
+/// Adds `names` to `sub_list`, skipping any that are already there (ignoring case).
+fn merge_names(sub_list: &mut Vec<String>, names: Vec<String>) {
+	let mut seen: HashSet<String> = sub_list.iter().map(|s| s.to_lowercase()).collect();
+	for name in names {
+		if seen.insert(name.to_lowercase()) {
+			sub_list.push(name);
+		}
+	}
+}
+
+/// Most names one import reads. Cookies can't hold more than this anyway.
+const MAX_IMPORT_NAMES: usize = 2000;
+
+/// Subreddit names are at most 24 characters of letters, digits and underscores.
+/// Names end up in the `subscriptions` cookie, where `+` and `;` have meaning.
+fn is_subreddit_name(name: &str) -> bool {
+	name.len() <= 24 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Largest import upload accepted. With JavaScript the browser sends only the
 /// names (a few KB); this leaves room for a full 100-subreddit mine.json page
 /// posted without it.
 const IMPORT_BODY_LIMIT: usize = 8 * 1024 * 1024;
+
+/// Largest `POST /settings` form accepted. A full form is well under 1 KiB.
+const SETTINGS_BODY_LIMIT: usize = 64 * 1024;
+
+/// Largest `POST /settings/encoded-restore` body accepted.
+const RESTORE_BODY_LIMIT: usize = 1024 * 1024;
 
 /// Reads the whole body, or returns `None` as soon as it passes `limit` bytes,
 /// so an oversized upload is never buffered in full.
@@ -435,7 +460,9 @@ fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
 	match value {
 		serde_json::Value::Object(map) => {
 			if let Some(serde_json::Value::String(name)) = map.get("display_name") {
-				names.push(name.clone());
+				if is_subreddit_name(name) && !name.is_empty() {
+					names.push(name.clone());
+				}
 			}
 			for v in map.values() {
 				collect_display_names(v, names);
@@ -451,13 +478,7 @@ fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
 }
 
 pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, String> {
-	let body = hyper::body::to_bytes(req.into_body())
-		.await
-		.map_err(|e| format!("Failed to get bytes from request body: {e}"))?;
-
-	if body.len() > 1024 * 1024 {
-		return Err("Request body too large".to_string());
-	}
+	let body = read_body_limited(req.into_body(), RESTORE_BODY_LIMIT).await?.ok_or("Request body too large")?;
 
 	let encoded_prefs = form_urlencoded::parse(&body)
 		.find(|(key, _)| key == "encoded_prefs")
@@ -466,14 +487,9 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 
 	let bytes = base2048::decode(&encoded_prefs).ok_or_else(|| "Failed to decode base2048 encoded preferences".to_string())?;
 
-	let out = timeout(std::time::Duration::from_secs(1), async { deflate_decompress(bytes) })
-		.await
-		.map_err(|e| format!("Failed to decompress bytes: {e}"))??;
+	let out = deflate_decompress(bytes)?;
 
-	let mut prefs: Preferences = timeout(std::time::Duration::from_secs(1), async { bincode::deserialize(&out) })
-		.await
-		.map_err(|e| format!("Failed to deserialize preferences: {e}"))?
-		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
+	let mut prefs: Preferences = bincode::deserialize(&out).map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
 
 	prefs.available_themes = vec![];
 
@@ -484,7 +500,43 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 
 #[cfg(test)]
 mod import_tests {
-	use super::{is_listing_cursor, listing_after, parse_subreddit_names};
+	use super::{is_listing_cursor, listing_after, merge_names, parse_subreddit_names};
+
+	#[tokio::test]
+	async fn settings_page_sets_and_clears_the_analytics_opt_out_cookie() {
+		use super::get;
+		use hyper::{Body, Request};
+		let set_cookies = |query: &'static str| async move {
+			let req = Request::builder().uri(format!("/settings{query}")).body(Body::empty()).unwrap();
+			let response = get(req).await.unwrap();
+			response.headers().get_all("set-cookie").iter().map(|v| v.to_str().unwrap().to_string()).collect::<Vec<_>>()
+		};
+
+		let opted_out = set_cookies("?ph_optout=1").await;
+		assert!(opted_out.iter().any(|c| c.starts_with("ph_optout=1;")), "{opted_out:?}");
+
+		let opted_in = set_cookies("?ph_optin=1").await;
+		assert!(opted_in.iter().any(|c| c.starts_with("ph_optout=;")), "{opted_in:?}");
+
+		assert!(set_cookies("").await.is_empty());
+	}
+
+	#[test]
+	fn json_names_are_validated_like_plain_names() {
+		let page = r#"{"data":{"children":[{"data":{"display_name":"rust"}},{"data":{"display_name":"a;Max-Age=0"}},{"data":{"display_name":"a+b"}},{"data":{"display_name":"aaaaaaaaaaaaaaaaaaaaaaaaa"}},{"data":{"display_name":""}},{"data":{"display_name":"u_ok_1"}}]}}"#;
+		assert_eq!(parse_subreddit_names(page), vec!["rust", "u_ok_1"]);
+		assert_eq!(parse_subreddit_names("rust, a;b, ok_1"), vec!["rust", "ok_1"]);
+	}
+
+	#[test]
+	fn import_is_capped_and_deduped_case_insensitively() {
+		let input: String = (0..5000).map(|i| format!("sub{i}\n")).collect();
+		assert_eq!(parse_subreddit_names(&input).len(), 2000);
+
+		let mut list = vec!["Rust".to_string()];
+		merge_names(&mut list, vec!["rust".into(), "Linux".into(), "LINUX".into(), "linux".into()]);
+		assert_eq!(list, vec!["Rust", "Linux"]);
+	}
 
 	#[test]
 	fn reads_names_and_next_page_cursor() {

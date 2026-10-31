@@ -12,7 +12,10 @@ use std::sync::LazyLock;
 
 // STRUCTS
 struct SearchParams {
+	/// The query as typed. Askama escapes it where it is shown.
 	q: String,
+	/// The query percent-encoded, for links and Reddit requests.
+	q_url: String,
 	sort: String,
 	t: String,
 	before: String,
@@ -91,13 +94,14 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 	}
 
 	let typed = param(&path, "type").unwrap_or_default();
+	let q_url = encode_query(&query);
 
 	let sort = param(&path, "sort").unwrap_or_else(|| "relevance".to_string());
 	let filters = get_filters(&req);
 
 	// If search is not restricted to this subreddit, show other subreddits in search results
 	let subreddits = if param(&path, "restrict_sr").is_none() {
-		let mut subreddits = search_subreddits(&query, &typed).await;
+		let mut subreddits = search_subreddits(&q_url, &typed).await;
 		subreddits.retain(|s| !filters.contains(s.name.as_str()));
 		subreddits
 	} else {
@@ -113,7 +117,8 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 			subreddits,
 			sub,
 			params: SearchParams {
-				q: query.replace('"', "&quot;"),
+				q: query,
+				q_url,
 				sort,
 				t: param(&path, "t").unwrap_or_default(),
 				before: param(&path, "after").unwrap_or_default(),
@@ -139,7 +144,8 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 					subreddits,
 					sub,
 					params: SearchParams {
-						q: query.replace('"', "&quot;"),
+						q: query,
+						q_url,
 						sort,
 						t: param(&path, "t").unwrap_or_default(),
 						before: param(&path, "after").unwrap_or_default(),
@@ -167,9 +173,15 @@ pub async fn find(req: Request<Body>) -> Result<Response<Body>, String> {
 	}
 }
 
-async fn search_subreddits(q: &str, typed: &str) -> Vec<Subreddit> {
+/// Percent-encodes a search query for use as a `q=` value in a link or request.
+fn encode_query(q: &str) -> String {
+	url::form_urlencoded::byte_serialize(q.as_bytes()).collect()
+}
+
+/// `q_url` is the query as made by [`encode_query`].
+async fn search_subreddits(q_url: &str, typed: &str) -> Vec<Subreddit> {
 	let limit = if typed == "sr_user" { "50" } else { "3" };
-	let subreddit_search_path = format!("/subreddits/search.json?q={}&limit={limit}", q.replace(' ', "+"));
+	let subreddit_search_path = format!("/subreddits/search.json?q={q_url}&limit={limit}");
 
 	// Send a request to the url
 	json(subreddit_search_path, false).await.unwrap_or_default()["data"]["children"]
@@ -191,4 +203,34 @@ async fn search_subreddits(q: &str, typed: &str) -> Vec<Subreddit> {
 			}
 		})
 		.collect::<Vec<Subreddit>>()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::encode_query;
+	use crate::utils::{param, Flair};
+
+	#[test]
+	fn test_query_round_trips_through_a_link() {
+		for q in ["c++", "AT&T", "C#", "100%", "say \"hi\"", "a b", "q=1&limit=100", "naïve"] {
+			let link = format!("?q={}&sort=new", encode_query(q));
+			assert_eq!(param(&link, "q").as_deref(), Some(q), "{link}");
+			assert_eq!(param(&link, "sort").as_deref(), Some("new"), "{link}");
+		}
+	}
+
+	#[test]
+	fn test_flair_search_round_trips() {
+		for text in ["Q&A", "C++", "50% off", "A#B", "Say \"hi\""] {
+			let flair = Flair {
+				flair_parts: Vec::new(),
+				text: text.to_string(),
+				background_color: String::new(),
+				foreground_color: String::new(),
+			};
+			let link = format!("?q={}&restrict_sr=on", flair.search_query());
+			assert_eq!(param(&link, "q"), Some(format!("flair_name:\"{text}\"")), "{link}");
+			assert_eq!(param(&link, "restrict_sr").as_deref(), Some("on"), "{link}");
+		}
+	}
 }

@@ -13,7 +13,6 @@ use revision::revisioned;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use serde_json_path::{JsonPath, JsonPathExt};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{Read, Write};
@@ -55,6 +54,13 @@ pub struct Flair {
 	pub text: String,
 	pub background_color: String,
 	pub foreground_color: String,
+}
+
+impl Flair {
+	/// The `q` value (percent-encoded) of a search for posts with this flair
+	pub fn search_query(&self) -> String {
+		url::form_urlencoded::byte_serialize(format!("flair_name:\"{}\"", self.text).as_bytes()).collect()
+	}
 }
 
 /// Part of flair, either emoji or text
@@ -563,7 +569,8 @@ pub struct Comment {
 	pub is_filtered: bool,
 	pub more_count: i64,
 	pub comment_sort: String,
-	pub prefs: Preferences,
+	pub hide_score: bool,
+	pub hide_awards: bool,
 	pub depth: u32,
 	pub descendant_count: u32,
 	pub auto_collapsed: bool,
@@ -686,16 +693,6 @@ pub struct Subreddit {
 	pub active: (String, String),
 	pub wiki: bool,
 	pub nsfw: bool,
-}
-
-/// Parser for query params, used in sorting (eg. /r/rust/?sort=hot)
-#[derive(serde::Deserialize)]
-pub struct Params {
-	pub t: Option<String>,
-	pub q: Option<String>,
-	pub sort: Option<String>,
-	pub after: Option<String>,
-	pub before: Option<String>,
 }
 
 #[derive(Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -836,10 +833,20 @@ pub fn deflate_compress(i: Vec<u8>) -> Result<Vec<u8>, String> {
 	e.finish().into_result().map_err(|e| e.to_string())
 }
 
+/// Largest inflated size accepted, to stop a tiny deflated blob from filling memory.
+const MAX_INFLATED_LEN: u64 = 256 * 1024;
+
 pub fn deflate_decompress(i: Vec<u8>) -> Result<Vec<u8>, String> {
-	let mut decoder = Decoder::new(&i[..]);
+	let decoder = Decoder::new(&i[..]);
 	let mut out = Vec::new();
-	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
+	// Read one byte past the cap so a blob that is exactly at it still passes
+	decoder
+		.take(MAX_INFLATED_LEN + 1)
+		.read_to_end(&mut out)
+		.map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
+	if out.len() as u64 > MAX_INFLATED_LEN {
+		return Err("Decompressed data too large".to_string());
+	}
 	Ok(out)
 }
 
@@ -899,7 +906,11 @@ pub async fn parse_post(post: &Value) -> Post {
 		let selftext = val(post, "selftext");
 		if selftext.contains("```") {
 			let mut html_output = String::new();
-			let parser = pulldown_cmark::Parser::new(&selftext);
+			// This path bypasses Reddit's sanitized `selftext_html`, so raw HTML must be shown as text.
+			let parser = pulldown_cmark::Parser::new(&selftext).map(|event| match event {
+				pulldown_cmark::Event::Html(t) | pulldown_cmark::Event::InlineHtml(t) => pulldown_cmark::Event::Text(t),
+				event => event,
+			});
 			pulldown_cmark::html::push_html(&mut html_output, parser);
 			rewrite_urls(&html_output)
 		} else {
@@ -1202,7 +1213,10 @@ pub fn rewrite_urls(input_text: &str) -> String {
 			break;
 		} else {
 			text1 = REDDIT_EMOJI_REGEX
-				.replace_all(&text1, format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default()))
+				.replace_all(
+					&text1,
+					regex::NoExpand(&format_url(REDDIT_EMOJI_REGEX.find(&text1).map(|x| x.as_str()).unwrap_or_default())),
+				)
 				.to_string()
 		}
 	}
@@ -1264,77 +1278,39 @@ pub fn rewrite_urls(input_text: &str) -> String {
 }
 
 // These links all follow a pattern of "https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/SUBREDDIT_ID/RANDOM_FILENAME.png"
-static REDDIT_EMOTE_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/(.*)"#).unwrap());
+static REDDIT_EMOTE_LINK_REGEX: LazyLock<Regex> =
+	LazyLock::new(|| Regex::new(r#"^https://reddit-econ-prod-assets-permanent\.s3\.amazonaws\.com/asset-manager/(.*)$"#).unwrap());
 
-// These all follow a pattern of '"emote|SUBREDDIT_IT|NUMBER"', we want the number
-static REDDIT_EMOTE_ID_NUMBER_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""emote\|.*\|(.*)""#).unwrap());
+// These all follow a pattern of 'emote|SUBREDDIT_IT|NUMBER', we want the number
+static REDDIT_EMOTE_ID_NUMBER_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^emote\|.*\|(.*)$"#).unwrap());
 
 pub fn rewrite_emotes(media_metadata: &Value, comment: String) -> String {
-	/* Create the paths we'll use to look for our data inside the json.
-	Because we don't know the name of any given emote we use a wildcard to parse them. */
-	let link_path = JsonPath::parse("$[*].s.u").expect("valid JSON Path");
-	let id_path = JsonPath::parse("$[*].id").expect("valid JSON Path");
-	let size_path = JsonPath::parse("$[*].s.y").expect("valid JSON Path");
-
-	// Extract all of the results from those json paths
-	let link_nodes = media_metadata.json_path(&link_path);
-	let id_nodes = media_metadata.json_path(&id_path);
-
-	// Initialize our vectors
-	let mut id_vec = Vec::new();
-	let mut link_vec = Vec::new();
-
-	// Add the relevant data to each of our vectors so we can access it by number later
-	for current_id in id_nodes {
-		id_vec.push(current_id)
-	}
-	for current_link in link_nodes {
-		link_vec.push(current_link)
-	}
-
-	/* Set index to the length of link_vec.
-	This is one larger than we'll actually be looking at, but we correct that later */
-	let mut index = link_vec.len();
-
 	// Comment needs to be in scope for when we call rewrite_urls()
 	let mut comment = comment;
 
-	/* Loop until index hits zero.
-	This also prevents us from trying to do anything on an empty vector */
-	while index != 0 {
-		/* Subtract 1 from index to get the real index we should be looking at.
-		Then continue on each subsequent loop to continue until we hit the last entry in the vector.
-		This is how we get this to deal with multiple emotes in a single message and properly replace each ID with it's link */
-		index -= 1;
+	/* Each entry carries its own id, link and size, so read them together. Entries that
+	aren't emotes (uploaded images and gifs have no `s.u` or no emote id) are skipped. */
+	for entry in media_metadata.as_object().into_iter().flat_map(|entries| entries.values()) {
+		let (Some(id), Some(link), Some(size)) = (entry["id"].as_str(), entry["s"]["u"].as_str(), entry["s"]["y"].as_u64()) else {
+			continue;
+		};
 
-		// Convert our current index in id_vec into a string so we can search through it with regex
-		let current_id = id_vec[index].to_string();
+		// The ID number can be multiple lengths, so we capture it with regex
+		let (Some(id_capture), Some(link_capture)) = (REDDIT_EMOTE_ID_NUMBER_REGEX.captures(id), REDDIT_EMOTE_LINK_REGEX.captures(link)) else {
+			continue;
+		};
 
-		/* The ID number can be multiple lengths, so we capture it with regex.
-		We also want to only attempt anything when we get matches to avoid panicking */
-		if let Some(id_capture) = REDDIT_EMOTE_ID_NUMBER_REGEX.captures(&current_id) {
-			// Format the ID to include the colons it has in the comment text
-			let id = format!(":{}:", &id_capture[1]);
+		// Format the ID to include the colons it has in the comment text
+		let id = format!(":{}:", &id_capture[1]);
 
-			// Convert current link to string to search through it with the regex
-			let link = link_vec[index].to_string();
+		// Reddit sends a size for the image based on whether it's alone or accompanied by text.
+		let to_replace_with = format!(
+			"<img loading=\"lazy\" src=\"/emote/{}\" width=\"{size}\" height=\"{size}\" style=\"vertical-align:text-bottom\">",
+			htmlescape::encode_minimal(&link_capture[1])
+		);
 
-			// Make sure we only do operations when we get matches, otherwise we panic when trying to access the first match
-			if let Some(link_capture) = REDDIT_EMOTE_LINK_REGEX.captures(&link) {
-				/* Reddit sends a size for the image based on whether it's alone or accompanied by text.
-				It's a good idea and makes everything look nicer, so we'll do the same. */
-				let size = media_metadata.json_path(&size_path).first().unwrap().to_string();
-
-				// Replace the ID we found earlier in the comment with the respective image and it's link from the regex capture
-				let to_replace_with = format!(
-					"<img loading=\"lazy\" src=\"/emote/{} width=\"{size}\" height=\"{size}\" style=\"vertical-align:text-bottom\">",
-					&link_capture[1]
-				);
-
-				// Inside the comment replace the ID we found with the string that will embed the image
-				comment = comment.replace(&id, &to_replace_with);
-			}
-		}
+		// Inside the comment replace the ID we found with the string that will embed the image
+		comment = comment.replace(&id, &to_replace_with);
 	}
 
 	// render bullet (unordered) lists
@@ -1413,12 +1389,26 @@ pub fn template(t: &impl Template) -> Response<Body> {
 }
 
 pub fn redirect(path: &str) -> Response<Body> {
+	let escaped = htmlescape::encode_minimal(path);
 	Response::builder()
 		.status(302)
 		.header("content-type", "text/html")
 		.header("Location", path)
-		.body(format!("Redirecting to <a href=\"{path}\">{path}</a>...").into())
+		.body(format!("Redirecting to <a href=\"{escaped}\">{escaped}</a>...").into())
 		.unwrap_or_default()
+}
+
+/// Returns `path` if it stays on this instance, otherwise `/`. Use it on every
+/// query value that ends up in [`redirect`]. Rejected: `//host` and `/\host`
+/// (browsers read both as another host), absolute URLs, and control characters
+/// (browsers drop tabs and newlines, so `/<tab>/host` is also `//host`).
+pub fn local_path(path: &str) -> String {
+	let mut chars = path.chars();
+	match (chars.next(), chars.next()) {
+		(Some('/'), None) => path.to_string(),
+		(Some('/'), Some(second)) if second != '/' && second != '\\' && !path.chars().any(char::is_control) => path.to_string(),
+		_ => "/".to_string(),
+	}
 }
 
 /// Renders a generic error landing page.
@@ -1632,7 +1622,10 @@ pub fn get_active_users_count() -> usize {
 
 #[cfg(test)]
 mod tests {
-	use super::{deflate_compress, deflate_decompress, format_num, format_url, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences};
+	use super::{
+		deflate_compress, deflate_decompress, format_num, format_url, local_path, parse_post, redirect, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename,
+		Post, Preferences,
+	};
 
 	#[test]
 	fn format_num_works() {
@@ -1750,6 +1743,14 @@ mod tests {
 		assert_eq!(rewrite_urls(input), output);
 	}
 
+	#[test]
+	fn test_rewriting_emoji_keeps_dollar_signs() {
+		let input =
+			r#"<p><img src="https://www.redditstatic.com/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20"> costs $2 and $5 or ${name}</p>"#;
+		let output = r#"<p><img src="/static/marketplace-assets/v1/core/emotes/snoomoji_emotes/free_emotes_pack/shrug.gif" width="20"> costs $2 and $5 or ${name}</p>"#;
+		assert_eq!(rewrite_urls(input), output);
+	}
+
 	#[tokio::test(flavor = "multi_thread")]
 	#[ignore] // Reddit blocks GitHub Actions IPs
 	async fn test_fetching_subreddit_quarantined() {
@@ -1811,6 +1812,31 @@ mod tests {
 		assert_eq!(rewrite_emotes(&json_input, comment_input.to_string()), output);
 	}
 
+	#[tokio::test]
+	async fn test_code_fence_post_does_not_pass_raw_html() {
+		let post = serde_json::json!({"data": {"selftext": "```\n```\n<img src=x>\n\nhello <b onclick=x>bold</b>", "selftext_html": "<div>ignored</div>"}});
+		let body = parse_post(&post).await.body;
+		assert!(!body.contains("<img"), "{body}");
+		assert!(!body.contains("<b "), "{body}");
+		assert!(body.contains("&lt;img src=x&gt;"), "{body}");
+	}
+
+	#[test]
+	fn test_rewriting_emotes_with_gifs_and_images() {
+		let emote = r#""emote|t5_31hpy|2028":{"e":"Image","id":"emote|t5_31hpy|2028","m":"image/png","s":{"u":"https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/t5_31hpy/PW6WsOaLcd.png","x":60,"y":60},"status":"valid","t":"sticker"}"#;
+		// Keys sort before "emote|…", and an uploaded image's size is not the emote's
+		let gif = r#""a1":{"e":"AnimatedImage","id":"a1","s":{"gif":"https://i.redd.it/a.gif","x":300,"y":1080}}"#;
+		let image = r#""b2":{"e":"Image","id":"b2","s":{"u":"https://preview.redd.it/b.png","x":1920,"y":1080}}"#;
+		let no_size = r#""c3":{"e":"Image","id":"emote|t5_1|7","s":{"u":"https://reddit-econ-prod-assets-permanent.s3.amazonaws.com/asset-manager/t5_1/x.png"}}"#;
+		let media_metadata = serde_json::from_str(&format!("{{{gif},{image},{emote},{no_size}}}")).expect("Valid JSON");
+		let comment = r#"<div class="md"><p>:2028: and :7:</p></div>"#;
+		let output = r#"<div class="md"><p><img loading="lazy" src="/emote/t5_31hpy/PW6WsOaLcd.png" width="60" height="60" style="vertical-align:text-bottom"> and :7:</p></div>"#;
+		assert_eq!(rewrite_emotes(&media_metadata, comment.to_string()), output);
+
+		// Nothing to replace, and no emotes at all, must not panic
+		assert_eq!(rewrite_emotes(&serde_json::Value::Null, "<p>hi</p>".to_string()), "<p>hi</p>");
+	}
+
 	#[test]
 	fn test_rewriting_bullet_list() {
 		let input = r#"<div class="md"><p>Hi, I&#39;ve bought this very same monitor and found no calibration whatsoever. I have an ICC profile that has been set up since I&#39;ve installed its driver from the LG website and it works ok. I also used <a href="http://www.lagom.nl/lcd-test/">http://www.lagom.nl/lcd-test/</a> to calibrate it. After some good tinkering I&#39;ve found the following settings + the color profile from the driver gets me past all the tests perfectly:
@@ -1864,6 +1890,35 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 			let decompressed = deflate_decompress(bytes).unwrap();
 			assert!(bincode::deserialize::<Preferences>(&decompressed).is_ok());
 		}
+	}
+
+	#[test]
+	fn test_deflate_decompress_rejects_bombs() {
+		// 1 MiB of zeros deflates to a tiny blob
+		let bomb = deflate_compress(vec![0u8; 1024 * 1024]).unwrap();
+		assert!(bomb.len() < 10 * 1024);
+		assert!(deflate_decompress(bomb).is_err());
+
+		let at_limit = deflate_compress(vec![0u8; 256 * 1024]).unwrap();
+		assert_eq!(deflate_decompress(at_limit).unwrap().len(), 256 * 1024);
+	}
+
+	#[test]
+	fn test_local_path() {
+		assert_eq!(local_path("/r/rust"), "/r/rust");
+		assert_eq!(local_path("/settings?imported=2"), "/settings?imported=2");
+		assert_eq!(local_path("/"), "/");
+		for bad in ["//evil.com", "/\\evil.com", "https://evil.com", "evil.com", "", "/\t/evil.com", "/a\r\nSet-Cookie: x=1"] {
+			assert_eq!(local_path(bad), "/", "{bad:?}");
+		}
+	}
+
+	#[test]
+	fn test_redirect_escapes_body() {
+		let response = redirect("/r/x\"><script>alert(1)</script>");
+		let body = futures_lite::future::block_on(hyper::body::to_bytes(response.into_body())).unwrap();
+		let body = String::from_utf8(body.to_vec()).unwrap();
+		assert!(!body.contains("<script>"), "{body}");
 	}
 
 	#[test]
