@@ -649,7 +649,7 @@ async fn subreddit(sub: &str, quarantined: bool) -> Result<Subreddit, String> {
 }
 
 pub async fn rss(req: Request<Body>) -> Result<Response<Body>, String> {
-	if config::get_setting("REDLIB_ENABLE_RSS").is_none() {
+	if !crate::utils::enable_rss() {
 		return Ok(error(req, "RSS is disabled on this instance.").await.unwrap_or_default());
 	}
 
@@ -764,6 +764,16 @@ fn get_mime_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use sealed_test::prelude::*;
+
+	#[sealed_test(env = [("REDLIB_ENABLE_RSS", "off")])]
+	fn test_rss_disabled_when_set_to_off() {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let req = Request::builder().uri("/r/rust.rss").body(Body::empty()).unwrap();
+		let response = rt.block_on(rss(req)).unwrap();
+		let body = String::from_utf8(rt.block_on(hyper::body::to_bytes(response.into_body())).unwrap().to_vec()).unwrap();
+		assert!(body.contains("RSS is disabled on this instance."), "{body}");
+	}
 
 	#[test]
 	fn test_check_name_count() {
