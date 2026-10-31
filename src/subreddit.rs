@@ -1,8 +1,8 @@
 #![allow(clippy::cmp_owned)]
 
 use crate::utils::{
-	catch_random, error, filter_posts, format_num, format_url, get_filters, info, nsfw_landing, param, redirect, rewrite_urls, setting, template, to_absolute_url, val, Post,
-	Preferences, Subreddit,
+	catch_random, error, filter_posts, format_num, format_url, get_filters, info, local_path, nsfw_landing, param, redirect, rewrite_urls, setting, template, to_absolute_url,
+	val, Post, Preferences, Subreddit,
 };
 use crate::{client::json, server::RequestExt, server::ResponseExt};
 use crate::{config, utils};
@@ -260,7 +260,7 @@ pub fn quarantine(req: &Request<Body>, sub: String, restriction: &str) -> Respon
 pub async fn add_quarantine_exception(req: Request<Body>) -> Result<Response<Body>, String> {
 	let subreddit = req.param("sub").ok_or("Invalid URL")?;
 	let redir = param(&format!("?{}", req.uri().query().unwrap_or_default()), "redir").ok_or("Invalid URL")?;
-	let mut response = redirect(&redir);
+	let mut response = redirect(&local_path(&redir));
 	response.insert_cookie(
 		Cookie::build((&format!("allow_quaran_{}", subreddit.to_lowercase()), "true"))
 			.path("/")
@@ -396,7 +396,7 @@ pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>,
 	// Redirect back to subreddit
 	// check for redirect parameter if unsubscribing/unfiltering from outside sidebar
 	let path = if let Some(redirect_path) = param(&format!("?{query}"), "redirect") {
-		format!("/{redirect_path}")
+		local_path(&format!("/{redirect_path}"))
 	} else {
 		format!("/r/{sub}")
 	};

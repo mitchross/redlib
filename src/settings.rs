@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 // CRATES
 use crate::server::ResponseExt;
 use crate::subreddit::join_until_size_limit;
-use crate::utils::{deflate_decompress, redirect, template, Preferences};
+use crate::utils::{deflate_decompress, local_path, redirect, template, Preferences};
 use askama::Template;
 use cookie::Cookie;
 use hyper::{body::HttpBody, Body, Request, Response};
@@ -122,11 +122,7 @@ fn set_cookies_method(req: Request<Body>, remove_cookies: bool) -> Response<Body
 	let path = match form.get("redirect") {
 		Some(value) => {
 			let value = value.replace("%26", "&").replace("%23", "#");
-			if value.starts_with('/') {
-				value
-			} else {
-				format!("/{value}")
-			}
+			local_path(&if value.starts_with('/') { value } else { format!("/{value}") })
 		}
 		None => "/".to_string(),
 	};

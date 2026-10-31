@@ -1427,12 +1427,26 @@ pub fn template(t: &impl Template) -> Response<Body> {
 }
 
 pub fn redirect(path: &str) -> Response<Body> {
+	let escaped = htmlescape::encode_minimal(path);
 	Response::builder()
 		.status(302)
 		.header("content-type", "text/html")
 		.header("Location", path)
-		.body(format!("Redirecting to <a href=\"{path}\">{path}</a>...").into())
+		.body(format!("Redirecting to <a href=\"{escaped}\">{escaped}</a>...").into())
 		.unwrap_or_default()
+}
+
+/// Returns `path` if it stays on this instance, otherwise `/`. Use it on every
+/// query value that ends up in [`redirect`]. Rejected: `//host` and `/\host`
+/// (browsers read both as another host), absolute URLs, and control characters
+/// (browsers drop tabs and newlines, so `/<tab>/host` is also `//host`).
+pub fn local_path(path: &str) -> String {
+	let mut chars = path.chars();
+	match (chars.next(), chars.next()) {
+		(Some('/'), None) => path.to_string(),
+		(Some('/'), Some(second)) if second != '/' && second != '\\' && !path.chars().any(char::is_control) => path.to_string(),
+		_ => "/".to_string(),
+	}
 }
 
 /// Renders a generic error landing page.
@@ -1647,7 +1661,8 @@ pub fn get_active_users_count() -> usize {
 #[cfg(test)]
 mod tests {
 	use super::{
-		deflate_compress, deflate_decompress, format_num, format_url, parse_post, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename, Post, Preferences,
+		deflate_compress, deflate_decompress, format_num, format_url, local_path, parse_post, redirect, render_bullet_lists, rewrite_emotes, rewrite_urls, url_path_basename,
+		Post, Preferences,
 	};
 
 	#[test]
@@ -1900,6 +1915,24 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 
 		let at_limit = deflate_compress(vec![0u8; 256 * 1024]).unwrap();
 		assert_eq!(deflate_decompress(at_limit).unwrap().len(), 256 * 1024);
+	}
+
+	#[test]
+	fn test_local_path() {
+		assert_eq!(local_path("/r/rust"), "/r/rust");
+		assert_eq!(local_path("/settings?imported=2"), "/settings?imported=2");
+		assert_eq!(local_path("/"), "/");
+		for bad in ["//evil.com", "/\\evil.com", "https://evil.com", "evil.com", "", "/\t/evil.com", "/a\r\nSet-Cookie: x=1"] {
+			assert_eq!(local_path(bad), "/", "{bad:?}");
+		}
+	}
+
+	#[test]
+	fn test_redirect_escapes_body() {
+		let response = redirect("/r/x\"><script>alert(1)</script>");
+		let body = futures_lite::future::block_on(hyper::body::to_bytes(response.into_body())).unwrap();
+		let body = String::from_utf8(body.to_vec()).unwrap();
+		assert!(!body.contains("<script>"), "{body}");
 	}
 
 	#[test]
