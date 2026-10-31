@@ -108,6 +108,11 @@ async fn style() -> Result<Response<Body>, String> {
 	)
 }
 
+/// `/r/:sub/w/*page` is a shortcut for `/r/:sub/wiki/*page`
+async fn wiki_shortcut(r: Request<Body>) -> Result<Response<Body>, String> {
+	Ok(redirect(&format!("/r/{}/wiki/{}", r.param("sub").unwrap_or_default(), r.param("page").unwrap_or_default())))
+}
+
 #[tokio::main]
 async fn main() {
 	// Load environment variables
@@ -369,9 +374,7 @@ async fn main() {
 	app
 		.at("/r/:sub/w")
 		.get(|r| async move { Ok(redirect(&format!("/r/{}/wiki", r.param("sub").unwrap_or_default()))) }.boxed());
-	app
-		.at("/r/:sub/w/*page")
-		.get(|r| async move { Ok(redirect(&format!("/r/{}/wiki/{}", r.param("sub").unwrap_or_default(), r.param("wiki").unwrap_or_default()))) }.boxed());
+	app.at("/r/:sub/w/*page").get(|r| wiki_shortcut(r).boxed());
 	app.at("/r/:sub/wiki").get(|r| subreddit::wiki(r).boxed());
 	app.at("/r/:sub/wiki/*page").get(|r| subreddit::wiki(r).boxed());
 
@@ -501,4 +504,21 @@ async fn fetch_instances() -> String {
 		.text()
 		.await
 		.expect("Failed to read body")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	async fn wiki_shortcut_keeps_the_page_name() {
+		let mut router = route_recognizer::Router::new();
+		router.add("/r/:sub/w/*page", ());
+		let matched = router.recognize("/r/rust/w/faq/intro").unwrap();
+		let mut req = Request::builder().uri("/r/rust/w/faq/intro").body(Body::empty()).unwrap();
+		req.set_params(matched.params().clone());
+
+		let response = wiki_shortcut(req).await.unwrap();
+		assert_eq!(response.headers()["Location"], "/r/rust/wiki/faq/intro");
+	}
 }
