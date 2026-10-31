@@ -11,7 +11,7 @@
 	<div id="column_one">
 		<form id="search_sort">
 			<div class="search_widget_divider_box">
-				<input id="search" type="text" name="q" placeholder="Search" value="{{ params.q|safe }}" title="Search redlib">
+				<input id="search" type="text" name="q" placeholder="Search" value="{{ params.q }}" title="Search redlib">
 				<div class="search_widget_divider_box">
 					{% if sub != "" %}
 					<div id="inside">
@@ -44,7 +44,7 @@
 		{% if subreddits.len() > 0 || params.typed == "sr_user" %}
 		<div id="search_subreddits">
 			{% if params.typed == "sr_user" %}
-			<a href="?q={{ params.q }}&sort={{ params.sort }}&t={{ params.t }}" class="search_subreddit" id="more_subreddits">← Back to post/comment results</a>
+			<a href="?q={{ params.q_url }}&sort={{ params.sort }}&t={{ params.t }}" class="search_subreddit" id="more_subreddits">← Back to post/comment results</a>
 			{% endif %}
 			{% for subreddit in subreddits %}
 			<a href="{{ subreddit.url }}" class="search_subreddit">
@@ -60,7 +60,7 @@
 			</a>
 			{% endfor %}
 			{% if params.typed != "sr_user" %}
-			<a href="?q={{ params.q }}&sort={{ params.sort }}&t={{ params.t }}&type=sr_user" class="search_subreddit" id="more_subreddits">More subreddit results →</a>
+			<a href="?q={{ params.q_url }}&sort={{ params.sort }}&t={{ params.t }}&type=sr_user" class="search_subreddit" id="more_subreddits">More subreddit results →</a>
 			{% endif %}
 		</div>
 		{% endif %}
@@ -114,13 +114,13 @@
 		{% if params.typed != "sr_user" %}
 		<footer>
 			{% if params.before != "" %}
-			<a href="?q={{ params.q|safe }}&restrict_sr={{ params.restrict_sr }}
+			<a href="?q={{ params.q_url }}&restrict_sr={{ params.restrict_sr }}
 				&sort={{ params.sort }}&t={{ params.t }}
 				&before={{ params.before }}" accesskey="P">PREV</a>
 			{% endif %}
 
 			{% if params.after != "" %}
-			<a href="?q={{ params.q|safe }}&restrict_sr={{ params.restrict_sr }}
+			<a href="?q={{ params.q_url }}&restrict_sr={{ params.restrict_sr }}
 				&sort={{ params.sort }}&t={{ params.t }}
 				&after={{ params.after }}" accesskey="N">NEXT</a>
 			{% endif %}

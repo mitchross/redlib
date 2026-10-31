@@ -57,6 +57,13 @@ pub struct Flair {
 	pub foreground_color: String,
 }
 
+impl Flair {
+	/// The `q` value (percent-encoded) of a search for posts with this flair
+	pub fn search_query(&self) -> String {
+		url::form_urlencoded::byte_serialize(format!("flair_name:\"{}\"", self.text).as_bytes()).collect()
+	}
+}
+
 /// Part of flair, either emoji or text
 #[derive(Clone, Serialize)]
 pub struct FlairPart {

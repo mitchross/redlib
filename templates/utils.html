@@ -137,7 +137,7 @@
 	</p>
 	<h1 class="post_title">
 		{% if post.flair.flair_parts.len() > 0 %}
-			<a href="/r/{{ post.community }}/search?q=flair_name%3A%22{{ post.flair.text }}%22&restrict_sr=on"
+			<a href="/r/{{ post.community }}/search?q={{ post.flair.search_query() }}&restrict_sr=on"
 				class="post_flair"
 				style="color:{{ post.flair.foreground_color }}; background:{{ post.flair.background_color }};">{% call render_flair(post.flair.flair_parts) %}</a>
 		{% endif %}
@@ -293,7 +293,7 @@
 			<a class="post_author {{ post.author.distinguished }}" href="/u/{{ post.author.name }}">u/{{ post.author.name }}</a>
 			{% endif %}
 			{% if post.flair.flair_parts.len() > 0 %}
-			<a href="/r/{{ post.community }}/search?q=flair_name%3A%22{{ post.flair.text }}%22&restrict_sr=on"
+			<a href="/r/{{ post.community }}/search?q={{ post.flair.search_query() }}&restrict_sr=on"
 				class="post_flair"
 				style="color:{{ post.flair.foreground_color }}; background:{{ post.flair.background_color }};"
 				dir="ltr">{% call render_flair(post.flair.flair_parts) %}</a>
