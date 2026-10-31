@@ -836,10 +836,20 @@ pub fn deflate_compress(i: Vec<u8>) -> Result<Vec<u8>, String> {
 	e.finish().into_result().map_err(|e| e.to_string())
 }
 
+/// Largest inflated size accepted, to stop a tiny deflated blob from filling memory.
+const MAX_INFLATED_LEN: u64 = 256 * 1024;
+
 pub fn deflate_decompress(i: Vec<u8>) -> Result<Vec<u8>, String> {
-	let mut decoder = Decoder::new(&i[..]);
+	let decoder = Decoder::new(&i[..]);
 	let mut out = Vec::new();
-	decoder.read_to_end(&mut out).map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
+	// Read one byte past the cap so a blob that is exactly at it still passes
+	decoder
+		.take(MAX_INFLATED_LEN + 1)
+		.read_to_end(&mut out)
+		.map_err(|e| format!("Failed to read from gzip decoder: {e}"))?;
+	if out.len() as u64 > MAX_INFLATED_LEN {
+		return Err("Decompressed data too large".to_string());
+	}
 	Ok(out)
 }
 
@@ -1879,6 +1889,17 @@ How`s your monitor by the way? Any IPS bleed whatsoever? I either got lucky or t
 			let decompressed = deflate_decompress(bytes).unwrap();
 			assert!(bincode::deserialize::<Preferences>(&decompressed).is_ok());
 		}
+	}
+
+	#[test]
+	fn test_deflate_decompress_rejects_bombs() {
+		// 1 MiB of zeros deflates to a tiny blob
+		let bomb = deflate_compress(vec![0u8; 1024 * 1024]).unwrap();
+		assert!(bomb.len() < 10 * 1024);
+		assert!(deflate_decompress(bomb).is_err());
+
+		let at_limit = deflate_compress(vec![0u8; 256 * 1024]).unwrap();
+		assert_eq!(deflate_decompress(at_limit).unwrap().len(), 256 * 1024);
 	}
 
 	#[test]

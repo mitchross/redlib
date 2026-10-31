@@ -8,10 +8,8 @@ use crate::subreddit::join_until_size_limit;
 use crate::utils::{deflate_decompress, redirect, template, Preferences};
 use askama::Template;
 use cookie::Cookie;
-use futures_lite::StreamExt;
 use hyper::{body::HttpBody, Body, Request, Response};
 use time::{Duration, OffsetDateTime};
-use tokio::time::timeout;
 use url::form_urlencoded;
 
 // STRUCTS
@@ -73,7 +71,7 @@ pub async fn get(req: Request<Body>) -> Result<Response<Body>, String> {
 /// Set cookies using response "Set-Cookie" header
 pub async fn set(req: Request<Body>) -> Result<Response<Body>, String> {
 	// Split the body into parts
-	let (parts, mut body) = req.into_parts();
+	let (parts, body) = req.into_parts();
 
 	// Grab existing cookies
 	let _cookies: Vec<Cookie<'_>> = parts
@@ -83,15 +81,7 @@ pub async fn set(req: Request<Body>) -> Result<Response<Body>, String> {
 		.filter_map(|header| Cookie::parse(header.to_str().unwrap_or_default()).ok())
 		.collect();
 
-	// Aggregate the body...
-	// let whole_body = hyper::body::aggregate(req).await.map_err(|e| e.to_string())?;
-	let body_bytes = body
-		.try_fold(Vec::new(), |mut data, chunk| {
-			data.extend_from_slice(&chunk);
-			Ok(data)
-		})
-		.await
-		.map_err(|e| e.to_string())?;
+	let body_bytes = read_body_limited(body, SETTINGS_BODY_LIMIT).await?.ok_or("Request body too large")?;
 
 	let form = url::form_urlencoded::parse(&body_bytes).collect::<HashMap<_, _>>();
 
@@ -402,6 +392,12 @@ fn parse_subreddit_names(input: &str) -> Vec<String> {
 /// posted without it.
 const IMPORT_BODY_LIMIT: usize = 8 * 1024 * 1024;
 
+/// Largest `POST /settings` form accepted. A full form is well under 1 KiB.
+const SETTINGS_BODY_LIMIT: usize = 64 * 1024;
+
+/// Largest `POST /settings/encoded-restore` body accepted.
+const RESTORE_BODY_LIMIT: usize = 1024 * 1024;
+
 /// Reads the whole body, or returns `None` as soon as it passes `limit` bytes,
 /// so an oversized upload is never buffered in full.
 async fn read_body_limited(mut body: Body, limit: usize) -> Result<Option<Vec<u8>>, String> {
@@ -451,13 +447,7 @@ fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
 }
 
 pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, String> {
-	let body = hyper::body::to_bytes(req.into_body())
-		.await
-		.map_err(|e| format!("Failed to get bytes from request body: {e}"))?;
-
-	if body.len() > 1024 * 1024 {
-		return Err("Request body too large".to_string());
-	}
+	let body = read_body_limited(req.into_body(), RESTORE_BODY_LIMIT).await?.ok_or("Request body too large")?;
 
 	let encoded_prefs = form_urlencoded::parse(&body)
 		.find(|(key, _)| key == "encoded_prefs")
@@ -466,14 +456,9 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 
 	let bytes = base2048::decode(&encoded_prefs).ok_or_else(|| "Failed to decode base2048 encoded preferences".to_string())?;
 
-	let out = timeout(std::time::Duration::from_secs(1), async { deflate_decompress(bytes) })
-		.await
-		.map_err(|e| format!("Failed to decompress bytes: {e}"))??;
+	let out = deflate_decompress(bytes)?;
 
-	let mut prefs: Preferences = timeout(std::time::Duration::from_secs(1), async { bincode::deserialize(&out) })
-		.await
-		.map_err(|e| format!("Failed to deserialize preferences: {e}"))?
-		.map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
+	let mut prefs: Preferences = bincode::deserialize(&out).map_err(|e| format!("Failed to deserialize bytes into Preferences struct: {e}"))?;
 
 	prefs.available_themes = vec![];
 
