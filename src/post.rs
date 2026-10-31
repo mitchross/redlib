@@ -332,6 +332,28 @@ fn build_comment(
 mod tests {
 	use super::*;
 
+	#[tokio::test]
+	async fn single_thread_script_loads_for_every_post_type() {
+		for post_type in ["image", "video", "gif", "link", "self"] {
+			for single_thread in [true, false] {
+				let mut post = parse_post(&serde_json::json!({"data": {"id": "abc", "subreddit": "x", "permalink": "/r/x/comments/abc/t/", "title": "t", "author": "someone"}})).await;
+				post.post_type = post_type.to_string();
+				let page = PostTemplate {
+					comments: Vec::new(),
+					post,
+					sort: String::new(),
+					prefs: Preferences::default(),
+					single_thread,
+					url: "/r/x/comments/abc/t/def".to_string(),
+					url_without_query: String::new(),
+					comment_query: String::new(),
+					next_cursor: String::new(),
+				};
+				assert_eq!(page.render().unwrap().contains("/highlighted.js"), single_thread, "{post_type}");
+			}
+		}
+	}
+
 	fn comment(id: &str, body: &str, body_html: &str, replies: serde_json::Value) -> serde_json::Value {
 		serde_json::json!({"kind": "t1", "data": {"id": id, "author": "someone", "body": body, "body_html": body_html, "parent_id": "t3_abc", "replies": replies}})
 	}
