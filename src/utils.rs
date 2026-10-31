@@ -111,14 +111,15 @@ pub struct Author {
 pub struct Poll {
 	pub poll_options: Vec<PollOption>,
 	pub voting_end_timestamp: (String, String),
-	pub total_vote_count: u64,
+	/// Missing from GraphQL's posts by ID
+	pub total_vote_count: Option<u64>,
 }
 
 impl Poll {
 	pub fn parse(poll_data: &Value) -> Option<Self> {
 		poll_data.as_object()?;
 
-		let total_vote_count = poll_data["total_vote_count"].as_u64()?;
+		let total_vote_count = poll_data["total_vote_count"].as_u64();
 		// voting_end_timestamp is in the format of milliseconds
 		let voting_end_timestamp = time(poll_data["voting_end_timestamp"].as_f64()? / 1000.0);
 		let poll_options = PollOption::parse(&poll_data["options"])?;
@@ -1109,6 +1110,8 @@ static REGEX_URL_EMOJI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?:/
 static REGEX_URL_PREVIEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://preview\.redd\.it/(.*)").unwrap());
 static REGEX_URL_EXTERNAL_PREVIEW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://external\-preview\.redd\.it/(.*)").unwrap());
 static REGEX_URL_STYLES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://styles\.redditmedia\.com/(.*)").unwrap());
+static REGEX_URL_PACKAGED_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://packaged-media\.redd\.it/(.*)").unwrap());
+static REGEX_URL_EXTERNAL_PACKAGED_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://external-packaged-media\.redd\.it/(.*)").unwrap());
 static REGEX_URL_STATIC_MEDIA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://www\.redditstatic\.com/(.*)").unwrap());
 
 /// Direct urls to proxy if proxy is enabled
@@ -1161,6 +1164,8 @@ pub fn format_url(url: &str) -> String {
 				"preview.redd.it" => capture(&REGEX_URL_PREVIEW, "/preview/pre/", 1),
 				"external-preview.redd.it" => capture(&REGEX_URL_EXTERNAL_PREVIEW, "/preview/external-pre/", 1),
 				"styles.redditmedia.com" => capture(&REGEX_URL_STYLES, "/style/", 1),
+				"packaged-media.redd.it" => capture(&REGEX_URL_PACKAGED_MEDIA, "/packaged/", 1),
+				"external-packaged-media.redd.it" => capture(&REGEX_URL_EXTERNAL_PACKAGED_MEDIA, "/packaged-external/", 1),
 				"www.redditstatic.com" => capture(&REGEX_URL_STATIC_MEDIA, "/static/", 1),
 				_ => url.to_string(),
 			}

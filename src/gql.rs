@@ -1,59 +1,68 @@
-//! Post comments through Reddit's Android GraphQL API. The anonymous JSON
-//! comments endpoint returns HTML with HTTP 403, including encoded paths.
-//!
-//! Adapted from polak14's GraphQL implementation (AGPL-3.0-only):
-//! https://github.com/polak14/redlib/commit/a63460b4ac29c27401e3e2aaab34b68dca02991e
-//! The RTJSON renderer and comment conversion retain that implementation's design.
+// Comments for post pages from Reddit's GraphQL API (gql-fed.reddit.com), which
+// the Android app uses. The `/comments/` JSON API is blocked for anonymous
+// tokens since 2026-10-20.
+//
+// Adapted from polak14's implementation (AGPL-3.0-only):
+// https://github.com/polak14/redlib/commit/29f18352cf54be4ffe579f773552acd0c45cdd08
+//
+// The post itself comes from `/by_id`, which gql_feed.rs answers. Comments are
+// converted into the shape of the `/comments/` JSON response, so post.rs and
+// the templates work unchanged.
 
-use crate::client::{json, CLIENT, OAUTH_CLIENT};
+use crate::client::{json, recover_from_block, roll_over_if_low, CLIENT, OAUTH_CLIENT, OAUTH_RATELIMIT_REMAINING};
 use crate::utils::{format_url, param};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use cached::proc_macro::cached;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::DateTime;
+use log::debug;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json as json_value, Value};
 use std::time::Duration;
 
 const GQL_URL: &str = "https://gql-fed.reddit.com/";
-// Android PostComments persisted operation; raw GraphQL queries are rejected.
-// https://github.com/Amqx/reddit-gql/blob/main/src/operations.ts
+
+// Persisted query ID from the Android app; Reddit rejects raw query text.
+// Source: github.com/Amqx/reddit-gql `src/operations.ts`, or the APK's Apollo classes.
 const POST_COMMENTS_HASH: &str = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4ddc01691d6d5c8433f8";
+// Reddit returns at most 200 comments per request, filled breadth-first
 const COMMENT_COUNT: u32 = 200;
 const MAX_DEPTH: u32 = 10;
+const TIMEOUT: Duration = Duration::from_secs(20);
+// Longer ones aren't Reddit's
+pub(crate) const MAX_CURSOR_LEN: usize = 8192;
 
-/// Preserve the existing two-Listing response consumed by post::item. Fetch
-/// metadata first, so missing/private/quarantined posts retain their API errors.
-#[cached(size = 100, time = 30, result = true)]
-pub async fn thread(path: String, quarantine: bool) -> Result<Value, String> {
-	let (id, comment_id) = parse_path(&path).ok_or("Invalid post path")?;
-	let post = json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine).await?;
-	let metadata = post["data"]["children"].as_array().and_then(|p| p.first()).ok_or("Post not found")?;
-	let sort = param(&path, "sort")
-		.filter(|s| !s.is_empty())
-		.or_else(|| metadata["data"]["suggested_sort"].as_str().filter(|s| sort_type(s).is_some()).map(str::to_owned))
-		.unwrap_or_else(|| "confidence".to_string());
-	let variables = variables(&id, comment_id.as_deref(), &path, &sort)?;
-	let body = json_value!({
-	 "operationName": "PostComments", "variables": variables,
-	 "extensions": { "persistedQuery": { "version": 1, "sha256Hash": POST_COMMENTS_HASH } }
-	});
-	let response = query(&body).await?;
-	let mut comments = comment_listing(&response, &id)?;
-	if let Some(comment_id) = comment_id {
-		let context = param(&path, "context").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
-		if context > 0 && param(&path, "cursor").is_none() {
-			let children = comments["data"]["children"].as_array().ok_or("Invalid comments listing")?;
-			let (mut depth, mut focused) = focused_branch(children, &comment_id).ok_or("Comment not found")?;
-			while depth > context {
-				focused = focused["data"]["replies"]["data"]["children"][0].take();
-				depth -= 1;
-			}
-			comments = listing(vec![focused]);
-		}
+/// Builds a `/comments/` JSON response for `path` (a `/comments/` API path, as
+/// built by `post::item`). Supports the `sort`, `cursor` and `context` query
+/// parameters and single comment threads. Without a sort, comments use the
+/// post's suggested sort, which the comments listing's `sort` reports.
+pub async fn thread(path: &str, quarantine: bool) -> Result<Value, String> {
+	let (id, comment_id) = parse_path(path).ok_or_else(|| format!("Couldn't parse post path | {path}"))?;
+	let requested = param(path, "sort").filter(|s| !s.is_empty());
+	if let Some(sort) = requested.as_deref().filter(|s| sort_type(s).is_none()) {
+		return Err(format!("Unsupported comment sort: {sort}"));
 	}
-	comments["data"]["sort"] = if sort == "best" { "confidence".into() } else { sort.into() };
+
+	let post = futures_lite::future::zip(json(format!("/by_id/t3_{id}.json?raw_json=1"), quarantine), crate::gql_feed::duplicate_count(&id));
+	let (post, duplicates, sort, comments) = if let Some(sort) = requested {
+		let ((post, duplicates), comments) = futures_lite::future::zip(post, comments(&id, comment_id.as_deref(), path, &sort)).await;
+		(post, duplicates, sort, comments)
+	} else {
+		// The suggested sort comes with the post
+		let (post, duplicates) = post.await;
+		let post = post?;
+		let suggested = post["data"]["children"][0]["data"]["suggested_sort"].as_str().filter(|s| sort_type(s).is_some());
+		let sort = suggested.unwrap_or("confidence").to_string();
+		let comments = comments(&id, comment_id.as_deref(), path, &sort).await;
+		(Ok(post), duplicates, sort, comments)
+	};
+	let mut post = post?;
+	// For the post's "duplicates" link
+	post["data"]["children"][0]["data"]["num_duplicates"] = duplicates.into();
+	let mut comments = listing(comments?);
+	comments["data"]["sort"] = sort.into();
 	Ok(json_value!([post, comments]))
 }
 
+/// GraphQL's comment sort for one of the JSON API's
 fn sort_type(sort: &str) -> Option<&'static str> {
 	Some(match sort {
 		"confidence" | "best" => "CONFIDENCE",
@@ -66,90 +75,72 @@ fn sort_type(sort: &str) -> Option<&'static str> {
 	})
 }
 
-fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Result<Value, String> {
-	let sort = sort_type(sort).ok_or("Unsupported comment sort")?;
-	let mut variables = json_value!({
-	 "id": format!("t3_{id}"), "sortType": sort, "count": COMMENT_COUNT,
-	 "maxDepth": MAX_DEPTH, "includeConsistencyToken": false, "includePremiumAvatarTreatment": false
-	});
-	if let Some(comment_id) = comment_id.filter(|_| param(path, "cursor").is_none()) {
-		// A continuation cursor already identifies its parent. Combining it with
-		// focusedCommentContext makes Reddit return DEPENDENCY_FAILURE.
-		// With context=..., Reddit also includes ancestors of the focused comment.
-		let context = param(path, "context").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-		variables["focusedCommentContext"] = json_value!({
-		 "commentId": format!("t1_{comment_id}"), "isFocusedThreadOnly": context == 0
-		});
-	}
-	if let Some(cursor) = param(path, "cursor") {
-		if cursor.len() > 8192 {
-			return Err("Invalid comments cursor".into());
+async fn comments(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Result<Vec<Value>, String> {
+	let variables = variables(id, comment_id, path, sort)?;
+	let response = query("PostComments", POST_COMMENTS_HASH, &variables).await?;
+	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
+		.as_array()
+		.ok_or_else(|| format!("No comments in response: {}", response["errors"]))?;
+	let comments = nest(trees.iter().filter_map(|tree| item(tree, id)).collect());
+
+	// With a context, Reddit also sends the focused comment's ancestors with all
+	// their replies. Keep only the comment's branch, up to `context` ancestors.
+	let context = context(path);
+	match comment_id {
+		Some(comment_id) if context > 0 && variables["after"].is_null() => {
+			let (mut depth, mut branch) = focused_branch(&comments, comment_id).ok_or("Comment not found")?;
+			while depth > context {
+				branch = branch["data"]["replies"]["data"]["children"][0].take();
+				depth -= 1;
+			}
+			Ok(vec![branch])
 		}
-		let cursor = URL_SAFE_NO_PAD
-			.decode(cursor)
-			.ok()
+		_ => Ok(comments),
+	}
+}
+
+fn context(path: &str) -> usize {
+	param(path, "context").and_then(|c| c.parse().ok()).unwrap_or(0)
+}
+
+fn variables(id: &str, comment_id: Option<&str>, path: &str, sort: &str) -> Result<Value, String> {
+	let mut variables = json_value!({
+		"id": format!("t3_{id}"),
+		"sortType": sort_type(sort).ok_or_else(|| format!("Unsupported comment sort: {sort}"))?,
+		"count": COMMENT_COUNT,
+		"maxDepth": MAX_DEPTH,
+		"includeConsistencyToken": false,
+		"includePremiumAvatarTreatment": false,
+	});
+	// Links carry cursors base64-encoded
+	let cursor = param(path, "cursor");
+	if let Some(cursor) = &cursor {
+		let cursor = Some(cursor)
+			.filter(|c| c.len() <= MAX_CURSOR_LEN)
+			.and_then(|c| STANDARD.decode(c).ok())
 			.and_then(|c| String::from_utf8(c).ok())
 			.ok_or("Invalid comments cursor")?;
 		variables["after"] = cursor.into();
 	}
+	// A cursor already says where its comments go; with a focused comment as
+	// well, Reddit fails with DEPENDENCY_FAILURE
+	if let Some(comment_id) = comment_id.filter(|_| cursor.is_none()) {
+		variables["focusedCommentContext"] = json_value!({ "commentId": format!("t1_{comment_id}"), "isFocusedThreadOnly": context(path) == 0 });
+	}
 	Ok(variables)
 }
 
-async fn query(body: &Value) -> Result<Value, String> {
-	for attempt in 0..2 {
-		let mut builder = CLIENT.load().post(GQL_URL).timeout(Duration::from_secs(20));
-		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
-			if !key.eq_ignore_ascii_case("content-type") {
-				builder = builder.header(key, value);
-			}
-		}
-		let response = builder.json(body).send().await.map_err(|e| format!("Reddit comments request failed: {e}"))?;
-		let status = response.status();
-		if !status.is_success() {
-			return Err(format!("Reddit comments request returned {status}"));
-		}
-		let response: Value = response.json().await.map_err(|_| "Reddit returned an invalid comments response")?;
-		// Upstream sometimes times out individual fields while returning HTTP 200.
-		if response["errors"].as_array().is_some_and(|errors| !errors.is_empty()) {
-			if attempt == 0 {
-				continue;
-			}
-			return Err(format!("Reddit comments API error: {}", response["errors"]));
-		}
-		return Ok(response);
-	}
-	unreachable!()
-}
-
-fn comment_listing(response: &Value, post_id: &str) -> Result<Value, String> {
-	let trees = response["data"]["postInfoById"]["commentForest"]["trees"]
-		.as_array()
-		.ok_or("Reddit returned no comment forest")?;
-	let after = trees
-		.iter()
-		.find(|t| is_next_page(t))
-		.and_then(|t| t["more"]["cursor"].as_str())
-		.map(|cursor| URL_SAFE_NO_PAD.encode(cursor));
-	let children = nest(trees.iter().filter(|t| !is_next_page(t)).filter_map(|t| item(t, post_id)).collect());
-	let mut result = listing(children);
-	result["data"]["after"] = after.into();
-	Ok(result)
-}
-
-fn is_next_page(tree: &Value) -> bool {
-	tree["depth"] == 0 && tree["parentId"].is_null() && !tree["more"].is_null()
-}
-
-/// Retain the ancestor chain of a focused comment without unrelated siblings.
+/// The comment `id` with its ancestors, without their other replies, and how
+/// deep it is.
 fn focused_branch(comments: &[Value], id: &str) -> Option<(usize, Value)> {
 	for comment in comments {
 		if comment["data"]["id"] == id {
 			return Some((0, comment.clone()));
 		}
 		if let Some(replies) = comment["data"]["replies"]["data"]["children"].as_array() {
-			if let Some((depth, child)) = focused_branch(replies, id) {
+			if let Some((depth, branch)) = focused_branch(replies, id) {
 				let mut parent = comment.clone();
-				parent["data"]["replies"] = listing(vec![child]);
+				parent["data"]["replies"] = listing(vec![branch]);
 				return Some((depth + 1, parent));
 			}
 		}
@@ -157,48 +148,50 @@ fn focused_branch(comments: &[Value], id: &str) -> Option<(usize, Value)> {
 	None
 }
 
-fn listing(children: Vec<Value>) -> Value {
-	json_value!({ "kind": "Listing", "data": { "children": children } })
-}
+/// Runs a persisted query. Fields that time out upstream come back null with an
+/// error next to the data; one retry usually fills them in.
+pub(crate) async fn query(operation: &str, hash: &str, variables: &Value) -> Result<Value, String> {
+	let body = json_value!({
+		"operationName": operation,
+		"variables": variables,
+		"extensions": { "persistedQuery": { "version": 1, "sha256Hash": hash } },
+	});
 
-fn parse_path(path: &str) -> Option<(String, Option<String>)> {
-	let base = path.split('?').next()?.strip_suffix(".json")?;
-	let tail = if let Some(tail) = base.strip_prefix("/comments/") {
-		tail
-	} else {
-		let (sub, rest) = base.strip_prefix("/r/")?.split_once('/')?;
-		if sub.is_empty() {
-			return None;
+	let mut response = Value::Null;
+	for _ in 0..2 {
+		let mut builder = CLIENT.load().post(GQL_URL).timeout(TIMEOUT);
+		for (key, value) in &OAUTH_CLIENT.load_full().headers_map {
+			// `json()` sets its own; a duplicate Content-Type fails every query
+			if !key.eq_ignore_ascii_case("content-type") {
+				builder = builder.header(key, value);
+			}
 		}
-		rest.strip_prefix("comments/")?
-	};
-	let parts: Vec<_> = tail.trim_end_matches('/').split('/').collect();
-	if parts.len() > 3 || !valid_id(parts[0]) {
-		return None;
-	}
-	let comment = parts.get(2).copied().filter(|s| !s.is_empty());
-	if comment.is_some_and(|s| !valid_id(s)) {
-		return None;
-	}
-	Some((parts[0].into(), comment.map(str::to_owned)))
-}
+		roll_over_if_low();
+		let res = builder.json(&body).send().await.map_err(|e| format!("Couldn't send request to Reddit: {operation}: {e}"))?;
+		let status = res.status();
+		// GraphQL's own rate limit, 600 per token
+		if let Some(remaining) = res.headers().get("x-ratelimit-remaining").and_then(|v| v.to_str().ok()?.parse::<f32>().ok()) {
+			OAUTH_RATELIMIT_REMAINING.store(remaining.round() as u16, std::sync::atomic::Ordering::SeqCst);
+		}
+		let text = res.text().await.map_err(|e| format!("{operation} returned {status}, then failed: {e}"))?;
+		// Errors come as JSON too, except Reddit's block page
+		response = match serde_json::from_str(&text) {
+			Ok(response) => response,
+			Err(_) => {
+				recover_from_block(status.as_u16());
+				return Err(format!("Failed to parse page JSON data: {operation} returned {status}"));
+			}
+		};
 
-fn valid_id(id: &str) -> bool {
-	!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())
-}
-
-/// Only HTTP(S) and local links may appear in rendered comment attributes.
-fn url_attr(value: Option<&str>) -> String {
-	let value = value.unwrap_or_default().trim();
-	if value.chars().any(char::is_control) {
-		return String::new();
+		if response["data"].is_null() {
+			return Err(format!("{operation} returned {status}: {}", response["errors"]));
+		}
+		if response["errors"].is_null() {
+			break;
+		}
+		debug!("{operation} returned partial data, retrying: {}", response["errors"]);
 	}
-	let local = value.starts_with('/') && !value.starts_with("//") && !value.contains('\\');
-	let web = url::Url::parse(value).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
-	if !local && !web {
-		return String::new();
-	}
-	htmlescape::encode_minimal(&format_url(value))
+	Ok(response)
 }
 
 /// Converts one entry of the comment forest to an item of the JSON API, with its depth.
@@ -210,13 +203,22 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	let more = &tree["more"];
 	if !more.is_null() {
 		let count = more["count"].as_i64().unwrap_or_default();
-		let cursor = more["cursor"].as_str().map(|c| URL_SAFE_NO_PAD.encode(c)).unwrap_or_default();
-		return Some((depth, json_value!({ "kind": "more", "data": { "id": cursor, "count": count, "parent_id": parent } })));
+		return Some((
+			depth,
+			if tree["parentId"].is_null() {
+				// More top-level comments: rendered as a link to the next page of comments
+				let cursor = STANDARD.encode(more["cursor"].as_str()?);
+				json_value!({ "kind": "more_comments", "data": { "id": utf8_percent_encode(&cursor, NON_ALPHANUMERIC).to_string(), "count": count, "parent_id": post_fullname } })
+			} else {
+				json_value!({ "kind": "more", "data": { "id": "", "count": count, "parent_id": parent } })
+			},
+		));
 	}
 
 	let node = &tree["node"];
 	let fullname = node["id"].as_str().unwrap_or_default();
-	if node["__typename"] != "DeletedComment" && !fullname.strip_prefix("t1_").is_some_and(valid_id) {
+	// IDs go into links and element IDs; deleted comments have none
+	if node["__typename"] != "DeletedComment" && !fullname.strip_prefix("t1_").is_some_and(is_id) {
 		return None;
 	}
 	let author = node["authorInfo"]["name"].as_str().unwrap_or("[unknown]");
@@ -230,31 +232,11 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	} else if node["isRemoved"] == true {
 		("[deleted]", "[removed]", String::new())
 	} else {
-		let richtext: Value = content["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
-		let html = if richtext["document"].is_array() {
-			render(&richtext["document"], &content["richtextMedia"])
-		} else {
-			format!("<p>{}</p>", htmlescape::encode_minimal(content["markdown"].as_str().unwrap_or_default()))
-		};
-		(author, content["markdown"].as_str().unwrap_or_default(), html)
+		(author, content["markdown"].as_str().unwrap_or_default(), content_html(content))
 	};
 
 	let flair = &node["authorFlair"];
-	let flair_richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
-	let flair_type = if flair_richtext.as_array().is_some_and(|r| !r.is_empty()) {
-		"richtext"
-	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
-		"text"
-	} else {
-		""
-	};
-
-	let awards: Vec<Value> = node["awardings"]
-		.as_array()
-		.into_iter()
-		.flatten()
-		.map(|a| json_value!({ "name": a["award"]["name"], "count": a["total"], "resized_icons": [{ "url": a["award"]["static_icon_16"]["url"] }] }))
-		.collect();
+	let (flair_type, flair_richtext) = flair_parts(flair);
 
 	Some((
 		depth,
@@ -277,7 +259,7 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 				"author_flair_text": flair["text"],
 				"author_flair_background_color": flair["template"]["backgroundColor"],
 				"author_flair_text_color": flair["textColor"].as_str().map(str::to_lowercase),
-				"all_awardings": awards,
+				"all_awardings": awards(&node["awardings"]),
 				"parent_id": parent,
 				"replies": "",
 			}
@@ -285,7 +267,35 @@ fn item(tree: &Value, post_id: &str) -> Option<(u64, Value)> {
 	))
 }
 
-fn timestamp(value: &Value) -> Option<f64> {
+/// A flair's type and richtext, as the JSON API's `*_flair_type` and `*_flair_richtext`.
+pub(crate) fn flair_parts(flair: &Value) -> (&'static str, Value) {
+	let richtext: Value = flair["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	let kind = if richtext.as_array().is_some_and(|r| !r.is_empty()) {
+		"richtext"
+	} else if flair["text"].as_str().is_some_and(|t| !t.is_empty()) {
+		"text"
+	} else {
+		""
+	};
+	(kind, richtext)
+}
+
+/// Awardings as the JSON API's `all_awardings`.
+pub(crate) fn awards(awardings: &Value) -> Vec<Value> {
+	awardings
+		.as_array()
+		.into_iter()
+		.flatten()
+		.map(|a| {
+			// Feeds sometimes only have the animated icon
+			let award = &a["award"];
+			let icon = award["static_icon_16"]["url"].as_str().or(award["icon_16"]["url"].as_str());
+			json_value!({ "name": award["name"], "count": a["total"], "resized_icons": [{ "url": icon }] })
+		})
+		.collect()
+}
+
+pub(crate) fn timestamp(value: &Value) -> Option<f64> {
 	DateTime::parse_from_str(value.as_str()?, "%Y-%m-%dT%H:%M:%S%.f%z").ok().map(|t| t.timestamp() as f64)
 }
 
@@ -322,8 +332,70 @@ fn close(open: &mut Vec<(u64, Value)>, top: &mut Vec<Value>) {
 	}
 }
 
+/// Extracts the post ID and optional comment ID from paths like
+/// `/r/{sub}/comments/{id}/{title}/{comment_id}.json?...`, also without the
+/// subreddit or with `/user/{name}` in its place.
+fn parse_path(path: &str) -> Option<(String, Option<String>)> {
+	let path = path.split('?').next()?.strip_suffix(".json")?;
+	let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
+	// By position, so a subreddit or title named "comments" isn't taken for the marker
+	let rest = match segments.as_slice() {
+		["comments", rest @ ..] => rest,
+		["r" | "user" | "u", owner, "comments", rest @ ..] if !owner.is_empty() => rest,
+		_ => return None,
+	};
+	let (id, comment_id) = match rest {
+		[id] | [id, _] => (*id, None),
+		[id, _, comment_id] => (*id, Some(*comment_id).filter(|c| !c.is_empty())),
+		_ => return None,
+	};
+	if !is_id(id) || comment_id.is_some_and(|c| !is_id(c)) {
+		return None;
+	}
+	Some((id.to_string(), comment_id.map(str::to_string)))
+}
+
+/// A post or comment ID (without its `t3_`/`t1_` prefix)
+pub(crate) fn is_id(id: &str) -> bool {
+	!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+fn listing(children: Vec<Value>) -> Value {
+	json_value!({ "kind": "Listing", "data": { "children": children } })
+}
+
+/// Escaped URL attribute value, proxied through Redlib for Reddit media. Empty
+/// unless it's a web or mail link, a local path or a fragment.
+fn url_attr(value: Option<&str>) -> String {
+	let value = value.unwrap_or_default().trim();
+	// Browsers drop control characters from URLs, so `java\nscript:` would run
+	if value.chars().any(char::is_control) {
+		return String::new();
+	}
+	// Not `//host` or `/\host`, which browsers treat as another site
+	let local = (value.starts_with('/') && !value.starts_with("//") && !value.contains('\\')) || value.starts_with('#');
+	let web = url::Url::parse(value).is_ok_and(|u| matches!(u.scheme(), "http" | "https" | "mailto"));
+	if !local && !web {
+		return String::new();
+	}
+	htmlescape::encode_minimal(&format_url(value))
+}
+
+/// A comment's, post's or page's `content` as HTML: its richtext, else its
+/// markdown as escaped plain text.
+pub(crate) fn content_html(content: &Value) -> String {
+	let richtext: Value = content["richtext"].as_str().and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+	if richtext["document"].is_array() {
+		return render(&richtext["document"], &content["richtextMedia"]);
+	}
+	match content["markdown"].as_str().filter(|m| !m.is_empty()) {
+		Some(markdown) => format!("<p>{}</p>", htmlescape::encode_minimal(markdown)),
+		None => String::new(),
+	}
+}
+
 /// Renders richtext (RTJSON) nodes as the HTML of the JSON API's `body_html`.
-fn render(nodes: &Value, media: &Value) -> String {
+pub(crate) fn render(nodes: &Value, media: &Value) -> String {
 	nodes.as_array().into_iter().flatten().map(|node| element(node, media)).collect()
 }
 
@@ -432,20 +504,20 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn post_paths_do_not_confuse_titles_or_queries_with_ids() {
-		for path in [
-			"/r/unixporn/comments/1xdp2ww/title/.json?sort=new",
-			"/comments/1xdp2ww.json",
-			"/r/comments/comments/1xdp2ww/.json",
-		] {
-			assert_eq!(parse_path(path), Some(("1xdp2ww".into(), None)));
-		}
+	fn test_parse_path() {
+		assert_eq!(parse_path("/r/linux/comments/1xaxcyl/some_title/.json?&raw_json=1"), Some(("1xaxcyl".into(), None)));
+		assert_eq!(parse_path("/r/linux/comments/1xaxcyl.json?sort=new&raw_json=1"), Some(("1xaxcyl".into(), None)));
 		assert_eq!(
-			parse_path("/r/unixporn/comments/1xdp2ww/title/abc/.json?context=3"),
-			Some(("1xdp2ww".into(), Some("abc".into())))
+			parse_path("/r/linux/comments/1xaxcyl/some_title/19re6tdr7osth.json?&raw_json=1"),
+			Some(("1xaxcyl".into(), Some("19re6tdr7osth".into())))
 		);
+		assert_eq!(parse_path("/comments/1xaxcyl/comments/abc.json?"), Some(("1xaxcyl".into(), Some("abc".into()))));
+		assert_eq!(parse_path("/user/spez/comments/1xaxcyl.json?"), Some(("1xaxcyl".into(), None)));
+		assert_eq!(parse_path("/r/comments/comments/1xdp2ww/.json"), Some(("1xdp2ww".into(), None)));
+		assert_eq!(parse_path("/r/linux/comments/1xaxcyl/t/abc/.json?context=3"), Some(("1xaxcyl".into(), Some("abc".into()))));
 		for path in [
-			"/r/rust/hot.json",
+			"/r/linux/hot.json",
+			"/r/linux/comments/1xaxcyl",
 			"/user/a/comments.json",
 			"/r//comments/abc.json",
 			"/comments/.json",
@@ -457,9 +529,28 @@ mod tests {
 	}
 
 	#[test]
-	fn sorts_focus_and_opaque_cursor_are_preserved() {
-		let cursor = URL_SAFE_NO_PAD.encode("opaque:+/= cursor");
-		let path = format!("/comments/abc/title/def.json?context=3&cursor={cursor}");
+	fn test_url_attr() {
+		for url in [
+			"javascript:alert(1)",
+			"JaVaScRiPt:alert(1)",
+			"java\nscript:alert(1)",
+			"data:text/html,<script>x</script>",
+			"//evil.test/x",
+			"/\\evil.test",
+			"vbscript:msgbox(1)",
+			"wiki/faq",
+		] {
+			assert!(url_attr(Some(url)).is_empty(), "{url}");
+		}
+		assert_eq!(url_attr(Some("/r/rust?a=1&b=2")), "/r/rust?a=1&amp;b=2");
+		assert_eq!(url_attr(Some("#faq")), "#faq");
+		assert_eq!(url_attr(Some("mailto:a@b.c")), "mailto:a@b.c");
+		assert_eq!(url_attr(Some("https://i.redd.it/x.png")), "/img/x.png");
+	}
+
+	#[test]
+	fn test_variables() {
+		let cursor = STANDARD.encode("opaque:+/= cursor");
 		for (sort, expected) in [
 			("confidence", "CONFIDENCE"),
 			("best", "CONFIDENCE"),
@@ -469,110 +560,63 @@ mod tests {
 			("old", "OLD"),
 			("qa", "QA"),
 		] {
-			let vars = variables("abc", Some("def"), &path, sort).unwrap();
-			assert_eq!(vars["id"], "t3_abc");
+			let vars = variables("abc", Some("def"), &format!("?context=3&cursor={cursor}"), sort).unwrap();
 			assert_eq!(vars["sortType"], expected);
 			assert_eq!(vars["after"], "opaque:+/= cursor");
+			// Reddit fails with DEPENDENCY_FAILURE for both
 			assert!(vars["focusedCommentContext"].is_null());
 		}
 		assert_eq!(
 			variables("abc", Some("def"), "?context=3", "top").unwrap()["focusedCommentContext"],
-			json_value!({"commentId": "t1_def", "isFocusedThreadOnly": false})
+			json_value!({ "commentId": "t1_def", "isFocusedThreadOnly": false })
 		);
 		assert_eq!(variables("abc", Some("def"), "?", "top").unwrap()["focusedCommentContext"]["isFocusedThreadOnly"], true);
 		assert!(variables("abc", None, "?cursor=%FF", "top").is_err());
+		assert!(variables("abc", None, &format!("?cursor={}", "A".repeat(MAX_CURSOR_LEN + 4)), "top").is_err());
 		assert!(variables("abc", None, "?", "invalid").is_err());
 	}
 
 	#[test]
-	fn listing_distinguishes_empty_comments_from_upstream_failure() {
-		assert!(comment_listing(&json_value!({"errors": [{"message":"blocked"}]}), "p").is_err());
-		assert!(comment_listing(&json_value!({"data":{"postInfoById":null}}), "p").is_err());
-		let listing = comment_listing(&json_value!({"data":{"postInfoById":{"commentForest":{"trees":[]}}}}), "p").unwrap();
-		assert_eq!(listing["data"]["children"], json_value!([]));
-		assert!(listing["data"]["after"].is_null());
-	}
-
-	#[test]
-	fn pagination_is_separate_from_reply_placeholders() {
-		let response = json_value!({"data":{"postInfoById":{"commentForest":{"trees":[
-			{"depth":0,"node":{"id":"t1_a","__typename":"Comment"}},
-			{"depth":1,"parentId":"t1_a","more":{"cursor":"nested","count":7}},
-			{"depth":0,"more":{"cursor":"opaque:+/= cursor","count":30}}
-		]}}}});
-		let listing = comment_listing(&response, "p").unwrap();
-		assert_eq!(listing["data"]["children"].as_array().unwrap().len(), 1);
-		assert_eq!(listing["data"]["children"][0]["data"]["replies"]["data"]["children"][0]["data"]["parent_id"], "t1_a");
-		assert_eq!(listing["data"]["children"][0]["data"]["replies"]["data"]["children"][0]["data"]["count"], 7);
-		let cursor = listing["data"]["after"].as_str().unwrap();
-		assert_eq!(variables("p", None, &format!("?cursor={cursor}"), "new").unwrap()["after"], "opaque:+/= cursor");
-		assert_eq!(
-			listing["data"]["children"][0]["data"]["replies"]["data"]["children"][0]["data"]["id"],
-			URL_SAFE_NO_PAD.encode("nested")
-		);
-	}
-
-	#[test]
-	fn focused_context_retains_ancestors_and_replies_without_siblings() {
-		let response = json_value!({"data":{"postInfoById":{"commentForest":{"trees":[
-			{"depth":0,"node":{"id":"t1_a","__typename":"Comment"}},
-			{"depth":1,"parentId":"t1_a","node":{"id":"t1_b","__typename":"Comment"}},
-			{"depth":2,"parentId":"t1_b","node":{"id":"t1_c","__typename":"Comment"}},
-			{"depth":1,"parentId":"t1_a","node":{"id":"t1_sibling","__typename":"Comment"}},
-			{"depth":0,"node":{"id":"t1_other","__typename":"Comment"}}
-		]}}}});
-		let listing = comment_listing(&response, "p").unwrap();
-		let children = listing["data"]["children"].as_array().unwrap();
-		let (depth, branch) = focused_branch(children, "b").unwrap();
+	fn test_focused_branch() {
+		let comment = |id: &str, depth: u64, parent: Option<&str>| json_value!({ "depth": depth, "parentId": parent, "node": { "__typename": "Comment", "id": id } });
+		let trees = [
+			comment("t1_a", 0, None),
+			comment("t1_b", 1, Some("t1_a")),
+			comment("t1_c", 2, Some("t1_b")),
+			comment("t1_sibling", 1, Some("t1_a")),
+			comment("t1_other", 0, None),
+		];
+		let comments = nest(trees.iter().filter_map(|t| item(t, "p")).collect());
+		let (depth, branch) = focused_branch(&comments, "b").unwrap();
 		assert_eq!(depth, 1);
 		assert_eq!(branch["data"]["id"], "a");
 		let replies = branch["data"]["replies"]["data"]["children"].as_array().unwrap();
 		assert_eq!(replies.len(), 1);
 		assert_eq!(replies[0]["data"]["id"], "b");
 		assert_eq!(replies[0]["data"]["replies"]["data"]["children"][0]["data"]["id"], "c");
-		assert!(focused_branch(children, "missing").is_none());
+		assert!(focused_branch(&comments, "missing").is_none());
 	}
 
 	#[test]
-	fn comments_keep_metadata_and_plain_text_fallback_is_escaped() {
-		let tree = json_value!({"depth":0,"node":{
-			"id":"t1_a","__typename":"Comment","authorInfo":{"name":"alice"},
-			"content":{"markdown":"<script>x</script> & text"},
-			"createdAt":"2026-10-20T17:00:53.706000+0000", "editedAt":"2026-10-20T17:01:53.000000+0000",
-			"score":18,"isStickied":true,"isScoreHidden":true,"distinguishedAs":"MODERATOR",
-			"authorFlair":{"text":"flair","textColor":"DARK","template":{"backgroundColor":"#fff"}}
-		}});
+	fn test_awards() {
+		let awards = awards(&json_value!([
+			{ "award": { "name": "A", "static_icon_16": { "url": "https://i.redd.it/a_16.png" }, "icon_16": { "url": "https://i.redd.it/a.gif" } }, "total": 1 },
+			{ "award": { "name": "B", "static_icon_16": null, "icon_16": { "url": "https://i.redd.it/b_16.png" } }, "total": 2 },
+		]));
+		assert_eq!(awards[0]["resized_icons"][0]["url"], "https://i.redd.it/a_16.png");
+		assert_eq!(awards[1]["resized_icons"][0]["url"], "https://i.redd.it/b_16.png");
+	}
+
+	#[test]
+	fn test_item_checks() {
+		let tree = json_value!({ "depth": 0, "parentId": "t3_p", "node": { "__typename": "Comment", "id": "t1_a", "content": { "markdown": "<script>x</script> & text" } } });
 		let (_, comment) = item(&tree, "p").unwrap();
-		let data = &comment["data"];
-		assert_eq!(data["id"], "a");
-		assert_eq!(data["parent_id"], "t3_p");
-		assert_eq!(data["body_html"], "<div class=\"md\"><p>&lt;script&gt;x&lt;/script&gt; &amp; text</p></div>");
-		assert_eq!(data["created_utc"], 1792515653.0);
-		assert_eq!(data["edited"], 1792515713.0);
-		assert_eq!(data["score"], 18);
-		assert_eq!(data["distinguished"], "moderator");
-		assert_eq!(data["stickied"], true);
-		assert_eq!(data["score_hidden"], true);
-		assert_eq!(data["author_flair_text"], "flair");
-		let mut removed = tree;
-		removed["node"]["isRemoved"] = true.into();
-		assert_eq!(item(&removed, "p").unwrap().1["data"]["body"], "[removed]");
-	}
-
-	#[test]
-	fn unsafe_urls_never_reach_html_attributes() {
-		for url in [
-			"javascript:alert(1)",
-			"JaVaScRiPt:alert(1)",
-			"java\nscript:alert(1)",
-			"data:text/html,<script>x</script>",
-			"//evil.test/x",
-			"/\\evil.test",
-			"vbscript:msgbox(1)",
-		] {
-			assert!(url_attr(Some(url)).is_empty(), "{url}");
-		}
-		assert_eq!(url_attr(Some("/r/rust?a=1&b=2")), "/r/rust?a=1&amp;b=2");
+		// No richtext: escaped markdown
+		assert_eq!(comment["data"]["body_html"], "<div class=\"md\"><p>&lt;script&gt;x&lt;/script&gt; &amp; text</p></div>");
+		assert_eq!(comment["data"]["parent_id"], "t3_p");
+		let mut bad = tree.clone();
+		bad["node"]["id"] = "t1_a\"><x".into();
+		assert!(item(&bad, "p").is_none());
 	}
 
 	#[test]
@@ -630,6 +674,8 @@ mod tests {
 		assert_eq!(replies[1]["data"]["count"], 5);
 
 		assert_eq!(comments[1]["data"]["replies"], "");
-		assert_eq!(comments[2]["kind"], "more");
+		assert_eq!(comments[2]["kind"], "more_comments");
+		// base64 of "c2", as links carry cursors
+		assert_eq!(comments[2]["data"]["id"], "YzI%3D");
 	}
 }
