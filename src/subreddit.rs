@@ -311,6 +311,17 @@ pub fn join_until_size_limit<T: std::fmt::Display>(vec: &[T]) -> Vec<std::string
 	result
 }
 
+/// Most names one subscribe/filter request may list. Each unknown name costs a
+/// separate request to Reddit.
+const MAX_ACTION_NAMES: usize = 25;
+
+fn check_name_count(sub: &str) -> Result<(), String> {
+	if sub.split('+').filter(|x| !x.is_empty()).count() > MAX_ACTION_NAMES {
+		return Err("Too many subreddits".to_string());
+	}
+	Ok(())
+}
+
 // Sub, filter, unfilter, or unsub by setting subscription cookie using response "Set-Cookie" header
 pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>, String> {
 	let sub = req.param("sub").unwrap_or_default();
@@ -323,6 +334,8 @@ pub async fn subscriptions_filters(req: Request<Body>) -> Result<Response<Body>,
 		}
 		return Err("Can't subscribe to random subreddit!".to_string());
 	}
+
+	check_name_count(&sub)?;
 
 	let query = req.uri().query().unwrap_or_default().to_string();
 
@@ -751,6 +764,15 @@ fn get_mime_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn test_check_name_count() {
+		let names = |n: usize| (0..n).map(|i| format!("sub{i}")).collect::<Vec<_>>().join("+");
+		assert!(check_name_count(&names(1)).is_ok());
+		assert!(check_name_count(&names(25)).is_ok());
+		assert!(check_name_count(&format!("{}+", names(25))).is_ok());
+		assert_eq!(check_name_count(&names(26)), Err("Too many subreddits".to_string()));
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	async fn test_fetching_subreddit() {
