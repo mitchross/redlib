@@ -15,7 +15,7 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64};
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use wreq::redirect::Policy;
 use wreq::{header as wreq_header, Client as WreqClient, EmulationFactory, Method, Response as WreqResponse};
 use wreq_util::{Emulation, EmulationOS, EmulationOption};
@@ -64,6 +64,12 @@ pub fn rebuild_client() {
 	CLIENT.store(std::sync::Arc::new(build_client()));
 }
 
+/// Connecting to Reddit or a CDN takes well under this.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Per read, not in total: it restarts after every chunk, so long video streams
+/// still work, but an upstream that goes silent can't hold a request forever.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub fn build_client() -> WreqClient {
 	// Keeping this list short to aid in privacy.
 	// The more emulations, the more unique a fingerprint each instance has.
@@ -82,6 +88,8 @@ pub fn build_client() -> WreqClient {
 	WreqClient::builder()
 		.emulation(emulation)
 		.redirect(Policy::none())
+		.connect_timeout(CONNECT_TIMEOUT)
+		.read_timeout(READ_TIMEOUT)
 		.build()
 		.expect("Should always be able to build a client")
 }
