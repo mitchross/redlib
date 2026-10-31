@@ -1,6 +1,6 @@
 #![allow(clippy::cmp_owned)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // CRATES
 use crate::server::ResponseExt;
@@ -302,11 +302,7 @@ pub async fn import_subscriptions(req: Request<Body>) -> Result<Response<Body>, 
 	// Merge (case-insensitive dedupe), then sort like the subscribe endpoint
 	let names = parse_subreddit_names(&import_data);
 	let imported = names.len();
-	for name in names {
-		if !sub_list.iter().any(|s| s.to_lowercase() == name.to_lowercase()) {
-			sub_list.push(name);
-		}
-	}
+	merge_names(&mut sub_list, names);
 	sub_list.sort_by_key(|a| a.to_lowercase());
 
 	// mine.json is paged (25 by default, 100 at most). When this wasn't the last
@@ -378,13 +374,33 @@ fn parse_subreddit_names(input: &str) -> Vec<String> {
 				continue;
 			}
 
-			if token.len() <= 24 && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+			if is_subreddit_name(token) {
 				names.push(token.to_string());
 			}
 		}
 	}
 
+	names.truncate(MAX_IMPORT_NAMES);
 	names
+}
+
+/// Adds `names` to `sub_list`, skipping any that are already there (ignoring case).
+fn merge_names(sub_list: &mut Vec<String>, names: Vec<String>) {
+	let mut seen: HashSet<String> = sub_list.iter().map(|s| s.to_lowercase()).collect();
+	for name in names {
+		if seen.insert(name.to_lowercase()) {
+			sub_list.push(name);
+		}
+	}
+}
+
+/// Most names one import reads. Cookies can't hold more than this anyway.
+const MAX_IMPORT_NAMES: usize = 2000;
+
+/// Subreddit names are at most 24 characters of letters, digits and underscores.
+/// Names end up in the `subscriptions` cookie, where `+` and `;` have meaning.
+fn is_subreddit_name(name: &str) -> bool {
+	name.len() <= 24 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Largest import upload accepted. With JavaScript the browser sends only the
@@ -431,7 +447,9 @@ fn collect_display_names(value: &serde_json::Value, names: &mut Vec<String>) {
 	match value {
 		serde_json::Value::Object(map) => {
 			if let Some(serde_json::Value::String(name)) = map.get("display_name") {
-				names.push(name.clone());
+				if is_subreddit_name(name) && !name.is_empty() {
+					names.push(name.clone());
+				}
 			}
 			for v in map.values() {
 				collect_display_names(v, names);
@@ -469,7 +487,24 @@ pub async fn encoded_restore(req: Request<Body>) -> Result<Response<Body>, Strin
 
 #[cfg(test)]
 mod import_tests {
-	use super::{is_listing_cursor, listing_after, parse_subreddit_names};
+	use super::{is_listing_cursor, listing_after, merge_names, parse_subreddit_names};
+
+	#[test]
+	fn json_names_are_validated_like_plain_names() {
+		let page = r#"{"data":{"children":[{"data":{"display_name":"rust"}},{"data":{"display_name":"a;Max-Age=0"}},{"data":{"display_name":"a+b"}},{"data":{"display_name":"aaaaaaaaaaaaaaaaaaaaaaaaa"}},{"data":{"display_name":""}},{"data":{"display_name":"u_ok_1"}}]}}"#;
+		assert_eq!(parse_subreddit_names(page), vec!["rust", "u_ok_1"]);
+		assert_eq!(parse_subreddit_names("rust, a;b, ok_1"), vec!["rust", "ok_1"]);
+	}
+
+	#[test]
+	fn import_is_capped_and_deduped_case_insensitively() {
+		let input: String = (0..5000).map(|i| format!("sub{i}\n")).collect();
+		assert_eq!(parse_subreddit_names(&input).len(), 2000);
+
+		let mut list = vec!["Rust".to_string()];
+		merge_names(&mut list, vec!["rust".into(), "Linux".into(), "LINUX".into(), "linux".into()]);
+		assert_eq!(list, vec!["Rust", "Linux"]);
+	}
 
 	#[test]
 	fn reads_names_and_next_page_cursor() {
