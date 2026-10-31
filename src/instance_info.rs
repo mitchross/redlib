@@ -195,10 +195,10 @@ impl InstanceInfo {
 					self.deploy_unix_ts,
 					self.compile_mode,
 					self.config.sfw_only,
+					self.config.pushshift,
 					self.config.enable_rss,
 					self.config.full_url,
 					self.config.default_remove_default_feeds,
-					self.config.pushshift,
 					self.config.banner,
 					self.config.default_hide_awards,
 					self.config.default_hide_score,
@@ -232,4 +232,33 @@ struct MessageTemplate {
 	body: String,
 	prefs: Preferences,
 	url: String,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn raw_info_labels_match_their_values() {
+		let info = InstanceInfo {
+			config: Config {
+				sfw_only: Some("v_sfw".into()),
+				pushshift: Some("v_pushshift".into()),
+				enable_rss: Some("v_rss".into()),
+				full_url: Some("v_full_url".into()),
+				default_remove_default_feeds: Some("v_remove_feeds".into()),
+				banner: Some("v_banner".into()),
+				..Config::default()
+			},
+			..InstanceInfo::default()
+		};
+		let text = info.to_string(&StringType::Raw);
+		let value_of = |label: &str| text.lines().map(str::trim).find_map(|line| line.strip_prefix(label)).map(str::to_string);
+		assert_eq!(value_of("SFW only: "), Some("Some(\"v_sfw\")".into()));
+		assert_eq!(value_of("Pushshift frontend: "), Some("Some(\"v_pushshift\")".into()));
+		assert_eq!(value_of("RSS enabled: "), Some("Some(\"v_rss\")".into()));
+		assert_eq!(value_of("Full URL: "), Some("Some(\"v_full_url\")".into()));
+		assert_eq!(value_of("Remove default feeds: "), Some("Some(\"v_remove_feeds\")".into()));
+		assert_eq!(value_of("Banner: "), Some("Some(\"v_banner\")".into()));
+	}
 }
