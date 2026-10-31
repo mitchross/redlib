@@ -268,6 +268,16 @@ fn unix_now() -> u64 {
 	SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// Clears [`OAUTH_IS_ROLLING_OVER`] on drop, so a cancelled or panicking refresh
+/// can't leave the flag set and turn every later refresh into a no-op.
+struct RollingGuard;
+
+impl Drop for RollingGuard {
+	fn drop(&mut self) {
+		OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
+	}
+}
+
 /// Swap in a fresh OAuth client. Returns false if it couldn't, in which case the
 /// current client stays in place. Concurrent calls collapse into one. Successful
 /// refreshes can repeat immediately (that is how rate-limit rollover works); after
@@ -281,6 +291,7 @@ pub async fn force_refresh_token() -> bool {
 		trace!("Skipping refresh token roll over, already in progress");
 		return true;
 	}
+	let _guard = RollingGuard;
 
 	trace!("Rolling over refresh token. Current rate limit: {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst));
 	let refreshed = match Oauth::try_refresh().await {
@@ -303,7 +314,6 @@ pub async fn force_refresh_token() -> bool {
 			false
 		}
 	};
-	OAUTH_IS_ROLLING_OVER.store(false, Ordering::SeqCst);
 	refreshed
 }
 
@@ -368,13 +378,17 @@ impl OauthBackend for MobileSpoofAuth {
 		// and really only as privacy-concerning as the OAuth token itself.
 		if let Some(header) = resp.headers().get("x-reddit-loid") {
 			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-loid".to_owned(), header_val.to_str().unwrap().to_string());
+			if let Ok(value) = header_val.to_str() {
+				self.additional_headers.insert("x-reddit-loid".to_owned(), value.to_string());
+			}
 		}
 
 		// Same with x-reddit-session
 		if let Some(header) = resp.headers().get("x-reddit-session") {
 			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-session".to_owned(), header_val.to_str().unwrap().to_string());
+			if let Ok(value) = header_val.to_str() {
+				self.additional_headers.insert("x-reddit-session".to_owned(), value.to_string());
+			}
 		}
 
 		trace!("Serializing response...");
@@ -397,7 +411,7 @@ impl OauthBackend for MobileSpoofAuth {
 			.as_u64()
 			.ok_or_else(|| AuthError::Field((json.clone(), "expires_in: as_u64")))?;
 
-		info!("[✅] Success - Retrieved token \"{}...\", expires in {}", &token[..32], expires_in);
+		info!("[✅] Success - Retrieved token \"{}...\", expires in {}", token.get(..32).unwrap_or(&token), expires_in);
 
 		Ok(OauthResponse {
 			token,
@@ -481,13 +495,17 @@ impl OauthBackend for GenericWebAuth {
 		// and really only as privacy-concerning as the OAuth token itself.
 		if let Some(header) = resp.headers().get("x-reddit-loid") {
 			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-loid".to_owned(), header_val.to_str().unwrap().to_string());
+			if let Ok(value) = header_val.to_str() {
+				self.additional_headers.insert("x-reddit-loid".to_owned(), value.to_string());
+			}
 		}
 
 		// Same with x-reddit-session
 		if let Some(header) = resp.headers().get("x-reddit-session") {
 			let header_val: &wreq::header::HeaderValue = header;
-			self.additional_headers.insert("x-reddit-session".to_owned(), header_val.to_str().unwrap().to_string());
+			if let Ok(value) = header_val.to_str() {
+				self.additional_headers.insert("x-reddit-session".to_owned(), value.to_string());
+			}
 		}
 
 		trace!("Serializing GenericWebAuth response...");
@@ -587,6 +605,17 @@ fn choose<T: Copy>(list: &[T]) -> T {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn rolling_guard_clears_flag_on_panic() {
+		OAUTH_IS_ROLLING_OVER.store(true, Ordering::SeqCst);
+		let result = std::panic::catch_unwind(|| {
+			let _guard = RollingGuard;
+			panic!("refresh blew up");
+		});
+		assert!(result.is_err());
+		assert!(!OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst));
+	}
 
 	#[tokio::test(flavor = "multi_thread")]
 	#[ignore] // Reddit blocks GitHub Actions IPs
