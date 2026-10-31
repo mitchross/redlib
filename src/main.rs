@@ -461,24 +461,20 @@ pub async fn proxy_commit_info() -> Result<Response<Body>, String> {
 		Response::builder()
 			.status(200)
 			.header("content-type", "application/atom+xml")
-			.body(Body::from(fetch_commit_info().await))
+			.body(Body::from(fetch_commit_info().await?))
 			.unwrap_or_default(),
 	)
 }
 
-#[cached(time = 600)]
-async fn fetch_commit_info() -> String {
-	let url = "https://github.com/redlib-org/redlib/commits/main.atom";
+/// Failures aren't cached, so a GitHub outage ends as soon as GitHub is back.
+#[cached(time = 600, result = true)]
+async fn fetch_commit_info() -> Result<String, String> {
+	fetch_text("https://github.com/redlib-org/redlib/commits/main.atom").await
+}
 
-	CLIENT
-		.load_full()
-		.get(url)
-		.send()
-		.await
-		.expect("Failed to request GitHub")
-		.text()
-		.await
-		.expect("Failed to read body")
+async fn fetch_text(url: &str) -> Result<String, String> {
+	let response = CLIENT.load_full().get(url).send().await.map_err(|e| format!("Failed to request GitHub: {e}"))?;
+	response.text().await.map_err(|e| format!("Failed to read GitHub response: {e}"))
 }
 
 pub async fn proxy_instances() -> Result<Response<Body>, String> {
@@ -486,29 +482,26 @@ pub async fn proxy_instances() -> Result<Response<Body>, String> {
 		Response::builder()
 			.status(200)
 			.header("content-type", "application/json")
-			.body(Body::from(fetch_instances().await))
+			.body(Body::from(fetch_instances().await?))
 			.unwrap_or_default(),
 	)
 }
 
-#[cached(time = 600)]
-async fn fetch_instances() -> String {
-	let url = "https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json";
-
-	CLIENT
-		.load_full()
-		.get(url)
-		.send()
-		.await
-		.expect("Failed to request GitHub")
-		.text()
-		.await
-		.expect("Failed to read body")
+#[cached(time = 600, result = true)]
+async fn fetch_instances() -> Result<String, String> {
+	fetch_text("https://raw.githubusercontent.com/redlib-org/redlib-instances/refs/heads/main/instances.json").await
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn unreachable_github_is_an_error_not_a_panic() {
+		// Nothing listens on port 1, so the request fails immediately
+		let error = fetch_text("http://127.0.0.1:1/").await.unwrap_err();
+		assert!(error.starts_with("Failed to request GitHub"), "{error}");
+	}
 
 	#[tokio::test]
 	async fn wiki_shortcut_keeps_the_page_name() {
