@@ -22,7 +22,7 @@ use serde_json::{json as json_value, Value};
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
-// Persisted query IDs from the Android app (see CLAUDE.md)
+// Persisted query IDs from the Android app
 const SUBREDDIT_FEED_HASH: &str = "97046e2a48050f10a507db354a8da60955ffccb586dcf63163bdfc6610d5cf7a";
 const POPULAR_FEED_HASH: &str = "728c0f9a4d12c17b8cffe07669bb1a8770b0f2ec0c84e040485f8fad2d9c417f";
 const ALL_FEED_HASH: &str = "0e9c0045dd244e934efd0ea4fefc00cb0b4d91523e2f09c8af075856cb59b937";
