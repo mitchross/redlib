@@ -388,17 +388,23 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 		Err(format!("{msg}: {e} | {path}"))
 	};
 
+	// Reddit blocks anonymous JSON for these paths; GraphQL answers them in the same shape.
+	let routed = if path.contains("/comments/") {
+		Some(Box::pin(crate::gql::thread(&path, quarantine)).await)
+	} else {
+		Box::pin(crate::gql_feed::route(&path, quarantine)).await
+	};
+	if let Some(result) = routed {
+		if let Ok(Ok(body)) = result.as_ref().map(serde_json::to_vec) {
+			stale::remember(stale_key(&path, quarantine), body.into());
+		}
+		return result;
+	}
+
 	// First, handle rolling over the OAUTH_CLIENT if need be.
 	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
 	let is_rolling_over = OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst);
-	// No cooldown: switching to a fresh token is how redlib stays under Reddit's
-	// per-token rate limit, and under load that is needed more than once a minute
-	// (a cooldown here caused 2.2.7's rate-limit outage). force_refresh_token
-	// already lets only one refresh run at a time.
-	if current_rate_limit < 10 && !is_rolling_over {
-		trace!("Rate limit {current_rate_limit} is low; rolling over to a new token");
-		tokio::spawn(force_refresh_token());
-	}
+	roll_over_if_low();
 	// Stop at 0. `fetch_sub` would wrap to 65535 and hide the low-limit check
 	// above until Reddit's next rate-limit header resets the count.
 	// (A plain CAS loop: `fetch_update` is deprecated on newer Rust, and its
@@ -499,23 +505,7 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 						}
 						Err(e) => {
 							error!("Got an invalid response from reddit {e}. Status code: {status}");
-							// 429: this token's rate limit is spent, so roll over to a fresh one now.
-							if status.as_u16() == 429 {
-								tokio::spawn(force_refresh_token());
-							}
-							// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
-							// Rebuild the HTTP client first: a new token through the old,
-							// blocked client didn't clear the block, a restart did.
-							if status.as_u16() == 403 && refresh_due("Reddit returned a non-JSON 403") {
-								tokio::spawn(async {
-									rebuild_client();
-									let refreshed = force_refresh_token().await;
-									warn!(
-										"Rebuilt the HTTP client after a 403 block; new token: {}",
-										if refreshed { "yes" } else { "no (kept the old one)" }
-									);
-								});
-							}
+							recover_from_block(status.as_u16());
 							if status.is_server_error() {
 								Err("Reddit is having issues, check if there's an outage".to_string())
 							} else {
@@ -528,6 +518,39 @@ async fn json_fresh(path: String, quarantine: bool) -> Result<Value, String> {
 			}
 		}
 		Err(e) => err("Couldn't send request to Reddit", e, path),
+	}
+}
+
+/// Rolls over to a new token when the current one runs low. No cooldown: switching
+/// tokens is how redlib stays under Reddit's per-token rate limit, and under load
+/// that is needed more than once a minute (a cooldown here caused 2.2.7's outage).
+/// force_refresh_token already lets only one refresh run at a time.
+pub fn roll_over_if_low() {
+	let current_rate_limit = OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst);
+	if current_rate_limit < 10 && !OAUTH_IS_ROLLING_OVER.load(Ordering::SeqCst) {
+		trace!("Rate limit {current_rate_limit} is low; rolling over to a new token");
+		tokio::spawn(force_refresh_token());
+	}
+}
+
+/// Starts recovery after Reddit refuses a request with `status`.
+pub fn recover_from_block(status: u16) {
+	// 429: this token's rate limit is spent, so roll over to a fresh one now.
+	if status == 429 {
+		tokio::spawn(force_refresh_token());
+	}
+	// Reddit answers a blocked token with an HTML 403; only a new token (device identity) clears it.
+	// Rebuild the HTTP client first: a new token through the old,
+	// blocked client didn't clear the block, a restart did.
+	if status == 403 && refresh_due("Reddit returned a non-JSON 403") {
+		tokio::spawn(async {
+			rebuild_client();
+			let refreshed = force_refresh_token().await;
+			warn!(
+				"Rebuilt the HTTP client after a 403 block; new token: {}",
+				if refreshed { "yes" } else { "no (kept the old one)" }
+			);
+		});
 	}
 }
 
@@ -569,11 +592,11 @@ pub async fn rate_limit_check() -> Result<(), String> {
 		return Ok(());
 	}
 
-	// First, check a subreddit.
+	// First, check a subreddit. That's one GraphQL request, limited to 600 per token.
 	self_check("reddit").await?;
-	// This will reduce the rate limit to 99. Assert this check.
-	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 99 {
-		return Err(format!("Rate limit check 1 failed: expected 99, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
+	// This will reduce the rate limit to 599. Assert this check.
+	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 599 {
+		return Err(format!("Rate limit check 1 failed: expected 599, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
 	}
 	// Now, we switch out the OAuth client.
 	// This checks for the IP rate limit association.
@@ -581,8 +604,8 @@ pub async fn rate_limit_check() -> Result<(), String> {
 	// Now, check a new sub to break cache.
 	self_check("rust").await?;
 	// Again, assert the rate limit check.
-	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 99 {
-		return Err(format!("Rate limit check 2 failed: expected 99, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
+	if OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst) != 599 {
+		return Err(format!("Rate limit check 2 failed: expected 599, got {}", OAUTH_RATELIMIT_REMAINING.load(Ordering::SeqCst)));
 	}
 
 	Ok(())

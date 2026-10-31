@@ -419,7 +419,7 @@
 		{% when Some with (poll) %}
 			{% let widest = poll.most_votes() %}
 			<div class="post_poll">
-				<span>{{ poll.total_vote_count }} votes,</span>
+				{% if let Some(total_vote_count) = poll.total_vote_count %}<span>{{ total_vote_count }} votes,</span>{% endif %}
 				<span title="{{ poll.voting_end_timestamp.1 }}">{{ poll.voting_end_timestamp.0 }}</span>
 				{% for option in poll.poll_options %}
 				<div class="poll_option">

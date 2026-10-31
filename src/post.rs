@@ -57,7 +57,7 @@ pub async fn item(req: Request<Body>) -> Result<Response<Body>, String> {
 	let highlighted_comment = &req.param("comment_id").unwrap_or_default();
 
 	// Send a request to the url, receive JSON in response
-	match crate::gql::thread(path, quarantined).await {
+	match crate::client::json(path, quarantined).await {
 		// Otherwise, grab the JSON output from the request
 		Ok(response) => {
 			// Parse the JSON into Post and Comment structs

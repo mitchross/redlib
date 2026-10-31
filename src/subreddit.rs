@@ -761,9 +761,10 @@ mod tests {
 	#[tokio::test(flavor = "multi_thread")]
 	#[ignore] // Reddit blocks GitHub Actions IPs
 	async fn test_gated_and_quarantined() {
+		// GraphQL has no info on them, even when opted in
 		let quarantined = subreddit("edgy", true).await;
-		assert!(quarantined.is_ok());
+		assert_eq!(quarantined.err(), Some("r/edgy is quarantined, and Reddit no longer shows it to Redlib".into()));
 		let gated = subreddit("drugs", true).await;
-		assert!(gated.is_ok());
+		assert_eq!(gated.err(), Some("r/drugs is gated, and Reddit no longer shows it to Redlib".into()));
 	}
 }

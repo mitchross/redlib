@@ -291,6 +291,10 @@ async fn main() {
 	app.at("/instances.json").get(|_| async move { proxy_instances().await }.boxed());
 
 	// Proxy media through Redlib
+	app.at("/packaged/*path").get(|r| proxy(r, "https://packaged-media.redd.it/{path}").boxed());
+	app
+		.at("/packaged-external/*path")
+		.get(|r| proxy(r, "https://external-packaged-media.redd.it/{path}").boxed());
 	app.at("/vid/:id/:size").get(|r| proxy(r, "https://v.redd.it/{id}/DASH_{size}").boxed());
 	app.at("/hls/:id/*path").get(|r| proxy(r, "https://v.redd.it/{id}/{path}").boxed());
 	app.at("/img/*path").get(|r| proxy(r, "https://i.redd.it/{path}").boxed());
